@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Aura AI Planner</title>
+    <!-- Telegram WebApp SDK -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <!-- Chart.js для графиков -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- FontAwesome для иконок -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: rgba(30, 41, 59, 0.7);
+            --accent-blue: #3b82f6;
+            --accent-purple: #8b5cf6;
+            --accent-green: #10b981;
+            --text-main: #f8fafc;
+            --text-sub: #94a3b8;
+            --border-color: rgba(255, 255, 255, 0.1);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(59, 130, 246, 0.15) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(139, 92, 246, 0.15) 0px, transparent 50%);
+            background-attachment: fixed;
+            color: var(--text-main);
+            min-height: 100vh;
+            padding-bottom: 30px;
+        }
+
+        /* Modal Language Selection */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(15, 23, 42, 0.9);
+            backdrop-filter: blur(10px);
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .modal-card {
+            background: rgba(30, 41, 59, 0.95);
+            border: 1px solid var(--border-color);
+            border-radius: 24px;
+            padding: 28px;
+            width: 100%;
+            max-width: 360px;
+            text-align: center;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+        }
+
+        .modal-card h2 {
+            font-size: 1.4rem;
+            margin-bottom: 8px;
+        }
+
+        .modal-card p {
+            color: var(--text-sub);
+            font-size: 0.9rem;
+            margin-bottom: 24px;
+        }
+
+        .lang-btn {
+            width: 100%;
+            padding: 14px;
+            margin-bottom: 12px;
+            border-radius: 14px;
+            border: 1px solid var(--border-color);
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-main);
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            transition: all 0.2s;
+        }
+
+        .lang-btn:hover, .lang-btn:active {
+            background: var(--accent-blue);
+            border-color: var(--accent-blue);
+        }
+
+        /* App Container */
+        .container {
+            max-width: 480px;
+            margin: 0 auto;
+            padding: 16px;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .user-profile {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .avatar {
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 1.1rem;
+        }
+
+        .user-info h1 {
+            font-size: 1.1rem;
+            font-weight: 700;
+        }
+
+        .user-info p {
+            font-size: 0.8rem;
+            color: var(--text-sub);
+        }
+
+        .lang-select-small {
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid var(--border-color);
+            color: var(--text-main);
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            outline: none;
+        }
+
+        /* AI Input Box */
+        .ai-input-card {
+            background: var(--card-bg);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--border-color);
+            border-radius: 20px;
+            padding: 14px;
+            margin-bottom: 20px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+        }
+
+        .input-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .ai-input {
+            flex: 1;
+            background: transparent;
+            border: none;
+            color: var(--text-main);
+            font-size: 0.95rem;
+            outline: none;
+        }
+
+        .ai-input::placeholder {
+            color: var(--text-sub);
+        }
+
+        .action-btn {
+            width: 40px;
+            height: 40px;
+            border-radius: 12px;
+            border: none;
+            background: var(--accent-blue);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: transform 0.1s;
+        }
+
+        .action-btn:active {
+            transform: scale(0.95);
+        }
+
+        .mic-btn {
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--text-main);
+        }
+
+        .mic-btn.recording {
+            background: #ef4444;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+
+        /* Dashboard Grid */
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .card {
+            background: var(--card-bg);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--border-color);
+            border-radius: 20px;
+            padding: 16px;
+        }
+
+        .card-title {
+            font-size: 0.85rem;
+            color: var(--text-sub);
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .card-value {
+            font-size: 1.4rem;
+            font-weight: 700;
+        }
+
+        .full-width {
+            grid-column: span 2;
+        }
+
+        /* Section Tabs */
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .section-title {
+            font-size: 1.1rem;
+            font-weight: 700;
+        }
+
+        /* Items List */
+        .item-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .item-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 14px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .item-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .item-icon {
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.9rem;
+        }
+
+        .icon-task { background: rgba(59, 130, 246, 0.2); color: var(--accent-blue); }
+        .icon-finance { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+        .icon-habit { background: rgba(16, 185, 129, 0.2); color: var(--accent-green); }
+        .icon-note { background: rgba(139, 92, 246, 0.2); color: var(--accent-purple); }
+
+        .item-text h4 {
+            font-size: 0.95rem;
+            font-weight: 600;
+        }
+
+        .item-text p {
+            font-size: 0.8rem;
+            color: var(--text-sub);
+        }
+
+        .delete-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-sub);
+            cursor: pointer;
+            padding: 6px;
+        }
+
+        .delete-btn:hover {
+            color: #ef4444;
+        }
+
+        /* Chart Canvas */
+        .chart-container {
+            position: relative;
+            height: 180px;
+            width: 100%;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Modal Select Language -->
+    <div id="langModal" class="modal-overlay">
+        <div class="modal-card">
+            <h2>Select Language</h2>
+            <p>Выберите язык интерфейса</p>
+            <button class="lang-btn" onclick="setLanguage('ru')"><span>Русский</span> <span>🇷🇺</span></button>
+            <button class="lang-btn" onclick="setLanguage('en')"><span>English</span> <span>🇬🇧</span></button>
+            <button class="lang-btn" onclick="setLanguage('hy')"><span>Հայերեն</span> <span>🇦🇲</span></button>
+        </div>
+    </div>
+
+    <!-- Main App -->
+    <div class="container">
+        <header>
+            <div class="user-profile">
+                <div class="avatar" id="userAvatar">A</div>
+                <div class="user-info">
+                    <h1 id="userName">User</h1>
+                    <p id="userStatus">Aura AI Planner</p>
+                </div>
+            </div>
+            <select id="langSelect" class="lang-select-small" onchange="setLanguage(this.value)">
+                <option value="ru">RU</option>
+                <option value="en">EN</option>
+                <option value="hy">HY</option>
+            </select>
+        </header>
+
+        <!-- Smart AI Input Box -->
+        <div class="ai-input-card">
+            <div class="input-wrapper">
+                <input type="text" id="aiInput" class="ai-input" placeholder="Запиши задачу или расход..." onkeypress="handleKeyPress(event)">
+                <button class="action-btn mic-btn" id="micBtn" onclick="toggleVoice()"><i class="fa-solid fa-microphone"></i></button>
+                <button class="action-btn" onclick="processInput()"><i class="fa-solid fa-arrow-up"></i></button>
+            </div>
+        </div>
+
+        <!-- Dashboard Analytics -->
+        <div class="grid">
+            <div class="card">
+                <div class="card-title"><i class="fa-solid fa-wallet"></i> <span id="lblExpenses">Расходы</span></div>
+                <div class="card-value" id="valExpenses">$0</div>
+            </div>
+            <div class="card">
+                <div class="card-title"><i class="fa-solid fa-check-double"></i> <span id="lblTasks">Задачи</span></div>
+                <div class="card-value" id="valTasks">0</div>
+            </div>
+            <div class="card full-width">
+                <div class="card-title"><i class="fa-solid fa-chart-line"></i> <span id="lblAnalytics">Аналитика недели</span></div>
+                <div class="chart-container">
+                    <canvas id="weeklyChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Section List -->
+        <div class="section-header">
+            <div class="section-title" id="lblRecent">Последние записи</div>
+        </div>
+        <div class="item-list" id="itemList">
+            <!-- Records will be loaded here dynamically -->
+        </div>
+    </div>
+
+    <script>
+        // Init Telegram WebApp
+        const tg = window.Telegram?.WebApp;
+        let userTgId = 12345678;
+
+        if (tg) {
+            tg.ready();
+            tg.expand();
+            if (tg.initDataUnsafe?.user) {
+                userTgId = tg.initDataUnsafe.user.id;
+                document.getElementById('userName').innerText = tg.initDataUnsafe.user.first_name || 'User';
+                document.getElementById('userAvatar').innerText = (tg.initDataUnsafe.user.first_name || 'U')[0].toUpperCase();
+            }
+        }
+
+        // Translation Dictionary
+        const i18n = {
+            ru: {
+                placeholder: "Запиши задачу, расход 50$ или привычку...",
+                expenses: "Расходы",
+                tasks: "Задачи",
+                analytics: "Аналитика недели",
+                recent: "Последние записи",
+                empty: "Записей пока нет. Добавьте первую!"
+            },
+            en: {
+                placeholder: "Add task, expense $50 or habit...",
+                expenses: "Expenses",
+                tasks: "Tasks",
+                analytics: "Weekly Analytics",
+                recent: "Recent Records",
+                empty: "No records yet. Add your first!"
+            },
+            hy: {
+                placeholder: "Գրեք առաջադրանք, ծախս 50$ կամ սովորություն...",
+                expenses: "Ծախսեր",
+                tasks: "Առաջադրանքներ",
+                analytics: "Շաբաթական վերլուծություն",
+                recent: "Վերջին գրառումները",
+                empty: "Գրառումներ չկան: Ավելացրեք առաջինը:"
+            }
+        };
+
+        let currentLang = 'ru';
+        let records = [];
+        let chartInstance = null;
+
+        // Language Selector Logic
+        function setLanguage(lang) {
+            currentLang = lang;
+            document.getElementById('langSelect').value = lang;
+            document.getElementById('langModal').style.display = 'none';
+
+            // Localize Interface Texts
+            document.getElementById('aiInput').placeholder = i18n[lang].placeholder;
+            document.getElementById('lblExpenses').innerText = i18n[lang].expenses;
+            document.getElementById('lblTasks').innerText = i18n[lang].tasks;
+            document.getElementById('lblAnalytics').innerText = i18n[lang].analytics;
+            document.getElementById('lblRecent').innerText = i18n[lang].recent;
+
+            render();
+        }
+
+        // Fetch Records from Backend API
+        async function loadRecords() {
+            try {
+                const res = await fetch(`/api/records/${userTgId}`);
+                if (res.ok) {
+                    records = await res.json();
+                } else {
+                    records = JSON.parse(localStorage.getItem('aura_records') || '[]');
+                }
+            } catch (e) {
+                records = JSON.parse(localStorage.getItem('aura_records') || '[]');
+            }
+            render();
+        }
+
+        // Process Input text
+        async function processInput() {
+            const input = document.getElementById('aiInput');
+            const text = input.value.trim();
+            if (!text) return;
+
+            let category = 'task';
+            let amount = 0;
+
+            // Simple Auto Parser
+            const numMatch = text.match(/\d+/);
+            if (numMatch && (text.includes('$') || text.includes('руб') || text.includes('֏') || text.toLowerCase().includes('купил') || text.toLowerCase().includes('spent'))) {
+                category = 'finance';
+                amount = parseFloat(numMatch[0]);
+            } else if (text.toLowerCase().includes('привычка') || text.toLowerCase().includes('habit')) {
+                category = 'habit';
+            } else if (text.toLowerCase().includes('заметка') || text.toLowerCase().includes('note')) {
+                category = 'note';
+            }
+
+            const newRecord = {
+                telegram_id: userTgId,
+                category: category,
+                title: text,
+                amount: amount,
+                currency: '$'
+            };
+
+            try {
+                const res = await fetch('/api/records', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(newRecord)
+                });
+                if (res.ok) {
+                    const saved = await res.json();
+                    records.unshift(saved);
+                } else {
+                    records.unshift({ id: Date.now(), ...newRecord });
+                    localStorage.setItem('aura_records', JSON.stringify(records));
+                }
+            } catch (e) {
+                records.unshift({ id: Date.now(), ...newRecord });
+                localStorage.setItem('aura_records', JSON.stringify(records));
+            }
+
+            input.value = '';
+            render();
+        }
+
+        function handleKeyPress(e) {
+            if (e.key === 'Enter') processInput();
+        }
+
+        // Delete Record
+        async function deleteRecord(id) {
+            records = records.filter(r => r.id !== id);
+            localStorage.setItem('aura_records', JSON.stringify(records));
+            try {
+                await fetch(`/api/records/${id}`, { method: 'DELETE' });
+            } catch (e) {}
+            render();
+        }
+
+        // Render UI
+        function render() {
+            const listEl = document.getElementById('itemList');
+            listEl.innerHTML = '';
+
+            let totalExpenses = 0;
+            let taskCount = 0;
+
+            if (records.length === 0) {
+                listEl.innerHTML = `<div style="text-align:center; color:var(--text-sub); padding:20px;">${i18n[currentLang].empty}</div>`;
+            }
+
+            records.forEach(r => {
+                if (r.category === 'finance') totalExpenses += (r.amount || 0);
+                if (r.category === 'task') taskCount++;
+
+                const icons = {
+                    task: 'fa-check',
+                    finance: 'fa-dollar-sign',
+                    habit: 'fa-repeat',
+                    note: 'fa-sticky-note'
+                };
+
+                const card = document.createElement('div');
+                card.className = 'item-card';
+                card.innerHTML = `
+                    <div class="item-left">
+                        <div class="item-icon icon-${r.category}">
+                            <i class="fa-solid ${icons[r.category] || 'fa-list'}"></i>
+                        </div>
+                        <div class="item-text">
+                            <h4>${r.title}</h4>
+                            <p>${r.category.toUpperCase()} ${r.amount ? '• $' + r.amount : ''}</p>
+                        </div>
+                    </div>
+                    <button class="delete-btn" onclick="deleteRecord(${r.id})"><i class="fa-solid fa-trash"></i></button>
+                `;
+                listEl.appendChild(card);
+            });
+
+            document.getElementById('valExpenses').innerText = '$' + totalExpenses;
+            document.getElementById('valTasks').innerText = taskCount;
+
+            updateChart();
+        }
+
+        // Render Chart.js
+        function updateChart() {
+            const ctx = document.getElementById('weeklyChart').getContext('2d');
+            if (chartInstance) chartInstance.destroy();
+
+            chartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+                    datasets: [{
+                        label: i18n[currentLang].expenses,
+                        data: [12, 19, 3, 5, 2, 20, 30],
+                        borderColor: '#3b82f6',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { grid: { display: false }, ticks: { color: '#94a3b8' } },
+                        y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } }
+                    }
+                }
+            });
+        }
+
+        // Voice Input Web Speech API
+        function toggleVoice() {
+            const micBtn = document.getElementById('micBtn');
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+            if (!SpeechRecognition) {
+                alert('Голосовой ввод не поддерживается в вашем браузере');
+                return;
+            }
+
+            const recognition = new SpeechRecognition();
+            recognition.lang = currentLang === 'ru' ? 'ru-RU' : currentLang === 'hy' ? 'hy-AM' : 'en-US';
+
+            recognition.onstart = () => micBtn.classList.add('recording');
+            recognition.onend = () => micBtn.classList.remove('recording');
+            recognition.onresult = (e) => {
+                document.getElementById('aiInput').value = e.results[0][0].transcript;
+                processInput();
+            };
+
+            recognition.start();
+        }
+
+        // Start
+        loadRecords();
+    </script>
+</body>
+</html>
