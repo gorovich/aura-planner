@@ -1,19 +1,22 @@
 import os
+import re
 import asyncio
+from typing import Optional, List
+from pydantic import BaseModel
+
 from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
-from typing import Optional, List
 
 from database import engine, Base, get_db
 import models
 
 from aiogram import Bot, Dispatcher, types, F
-from aiogram.filters import CommandStart
+from aiogram.filters import CommandStart, Command
 from aiogram.types import WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton
 
+# Инициализация БД
 Base.metadata.create_all(bind=engine)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
@@ -32,7 +35,7 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# --- СХЕМЫ ДАННЫХ ---
+# --- Pydantic Схемы ---
 class UserAuth(BaseModel):
     telegram_id: int
     language: Optional[str] = "ru"
@@ -44,7 +47,60 @@ class RecordCreate(BaseModel):
     amount: Optional[float] = 0.0
     currency: Optional[str] = "$"
 
-# --- МАРШРУТЫ API ---
+class ShortcutPayload(BaseModel):
+    text: str
+
+# --- Универсальный парсер записей ---
+def parse_and_save(telegram_id: int, text: str, db: Session):
+    user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
+    if not user:
+        user = models.User(telegram_id=telegram_id)
+        db.add(user)
+        db.commit()
+
+    category = "task"
+    amount = 0.0
+    text_lower = text.lower()
+
+    # Парсинг числительных (цифры и слова)
+    num_words = {
+        "հիսուն": 50, "տաս": 10, "քսան": 20, "երեսուն": 30, "քառասուն": 40,
+        "հարյուր": 100, "հազար": 1000, "пятьдесят": 50, "сто": 100, "тысяча": 1000
+    }
+
+    numbers = re.findall(r'\d+', text)
+    if numbers:
+        amount = float(numbers[0])
+    else:
+        for word, val in num_words.items():
+            if word in text_lower:
+                amount = float(val)
+                break
+
+    # Ключевые слова расходов (RU, EN, HY)
+    finance_keywords = [
+        "руб", "$", "драм", "֏", "купил", "потратил", "цена", "стоил", "кофе", "кофե",
+        "dollar", "dolar", "դոլար", "դրամ", "ծախս", "գնեցի", "կոֆե", "սուրճ", "ստացա"
+    ]
+
+    if amount > 0 or any(k in text_lower for k in finance_keywords):
+        category = "finance"
+        if amount == 0.0:
+            amount = 1.0
+
+    record = models.Record(
+        user_id=user.id,
+        category=category,
+        title=text,
+        amount=amount,
+        currency="$"
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    return category, amount
+
+# --- REST API Маршруты ---
 
 @app.get("/", response_class=HTMLResponse)
 async def read_index():
@@ -73,34 +129,25 @@ def get_records(telegram_id: int, db: Session = Depends(get_db)):
 
 @app.post("/api/records")
 def create_record(data: RecordCreate, db: Session = Depends(get_db)):
-    user = db.query(models.User).filter(models.User.telegram_id == data.telegram_id).first()
-    if not user:
-        user = models.User(telegram_id=data.telegram_id)
-        db.add(user)
-        db.commit()
-
-    record = models.Record(
-        user_id=user.id,
-        category=data.category,
-        title=data.title,
-        amount=data.amount,
-        currency=data.currency
-    )
-    db.add(record)
-    db.commit()
-    db.refresh(record)
-    return record
+    cat, amt = parse_and_save(data.telegram_id, data.title, db)
+    return {"status": "ok", "category": cat, "amount": amt}
 
 @app.delete("/api/records/{record_id}")
 def delete_record(record_id: int, db: Session = Depends(get_db)):
     record = db.query(models.Record).filter(models.Record.id == record_id).first()
     if not record:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise HTTPException(status_code=404, detail="Запись не найдена")
     db.delete(record)
     db.commit()
     return {"status": "deleted"}
 
-# --- ТЕЛЕГРАМ БОТ: ОБРАБОТКА ГОЛОСОВЫХ И ТЕКСТА ---
+# Эндпоинт специально для Быстрых команд iPhone
+@app.post("/api/shortcut")
+def handle_shortcut(id: int, payload: ShortcutPayload, db: Session = Depends(get_db)):
+    cat, amt = parse_and_save(id, payload.text, db)
+    return {"status": "ok", "category": cat, "text": payload.text}
+
+# --- Хэндлеры Telegram Бота ---
 
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
@@ -108,79 +155,39 @@ async def cmd_start(message: types.Message):
         [InlineKeyboardButton(text="🚀 Открыть Планировщик", web_app=WebAppInfo(url=WEBAPP_URL))]
     ])
     await message.answer(
-        f"Привет, {message.from_user.first_name}! 👋\n\nОтправляй мне **текстовые или голосовые сообщения**, и я автоматически добавлю их в планировщик!",
+        f"Привет, {message.from_user.first_name}! 👋\n\n"
+        f"Отправляй тексты/голосовые сообщения сюда или используй команду /shortcut для настройки Siri на iPhone!",
         reply_markup=markup
     )
 
-# Функция автопарсинга текста по категориям
-def parse_and_save(telegram_id: int, text: str):
-    db = next(get_db())
-    user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
-    if not user:
-        user = models.User(telegram_id=telegram_id)
-        db.add(user)
-        db.commit()
+@dp.message(Command("shortcut"))
+async def cmd_shortcut(message: types.Message):
+    user_id = message.from_user.id
+    user_api_url = f"{WEBAPP_URL}/api/shortcut?id={user_id}"
 
-    category = "task"
-    amount = 0.0
+    markup = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text="📲 Установить Быструю команду",
+            url="https://www.icloud.com/shortcuts/YOUR_SHORTCUT_LINK_HERE"
+        )]
+    ])
 
-    import re
-    text_lower = text.lower()
-
-    # Словарь армянских и числительных замен для распознавания сумм
-    num_words = {
-        "հիսուն": 50, "տաս": 10, "քսան": 20, "երեսուն": 30, "քառասուն": 40,
-        "հարյուր": 100, "հազար": 1000, "пятьдесят": 50, "сто": 100, "тысяча": 1000
-    }
-
-    # Ищем обычные цифры или числа прописью
-    numbers = re.findall(r'\d+', text)
-    if numbers:
-        amount = float(numbers[0])
-    else:
-        for word, val in num_words.items():
-            if word in text_lower:
-                amount = float(val)
-                break
-
-    # Ключевые слова расходов (RU, EN, HY)
-    finance_keywords = [
-        "руб", "$", "драм", "֏", "купил", "потратил", "цена", "стоил", "кофе", "кофե",
-        "dollar", "dolar", "դոլար", "դրամ", "ծախս", "գնեցի", "կոֆե", "սուրճ", "ստացա"
-    ]
-
-    # Если есть ключевое слово расхода ИЛИ сумма > 0 — переводим в FINANCE
-    if amount > 0 or any(k in text_lower for k in finance_keywords):
-        category = "finance"
-        if amount == 0.0:
-            amount = 1.0  # Дефолтная сумма, если число не распознано
-
-    record = models.Record(
-        user_id=user.id,
-        category=category,
-        title=text,
-        amount=amount,
-        currency="$"
+    await message.answer(
+        f"🎙 **Голосовой ввод через Siri на iPhone**\n\n"
+        f"1. Нажмите кнопку ниже и установите Быструю команду.\n"
+        f"2. При запросе «Вставьте вашу личную ссылку» скопируйте и вставьте текст ниже:\n\n"
+        f"`{user_api_url}`\n\n"
+        f"После этого команду можно запускать фразой «Привет Siri, Добавить запись» или вынести иконку на главный экран!",
+        reply_markup=markup,
+        parse_mode="Markdown"
     )
-    db.add(record)
-    db.commit()
-    return category, amount
 
-# Прием обычного текста в чате бота
 @dp.message(F.text)
 async def handle_text_message(message: types.Message):
-    cat, amt = parse_and_save(message.from_user.id, message.text)
-    emoji = "💸" if cat == "finance" else "✅" if cat == "task" else "🔄"
-    await message.answer(f"{emoji} Записано в приложение: **{message.text}**")
-
-# Прием голосовых сообщений в чате бота
-@dp.message(F.voice)
-async def handle_voice_message(message: types.Message):
-    await message.answer("🎙 Принял голосовое сообщение! Обрабатываю...")
-    # Здесь можно подключить Whisper API / OpenAI API для идеальной расшифровки
-    recognized_text = "Голосовая заметка: " + (message.caption or "Новая запись")
-    cat, amt = parse_and_save(message.from_user.id, recognized_text)
-    await message.answer(f"✅ Добавлено в планер!")
+    db = next(get_db())
+    cat, amt = parse_and_save(message.from_user.id, message.text, db)
+    emoji = "💸" if cat == "finance" else "✅"
+    await message.answer(f"{emoji} Записано в приложение: **{message.text}**", parse_mode="Markdown")
 
 @app.on_event("startup")
 async def on_startup():
