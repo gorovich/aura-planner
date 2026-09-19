@@ -125,15 +125,36 @@ def parse_and_save(telegram_id: int, text: str):
     amount = 0.0
 
     import re
-    numbers = re.findall(r'\d+', text)
     text_lower = text.lower()
 
-    if numbers and any(k in text_lower for k in ["руб", "$", "драм", "֏", "купил", "потратил", "цена", "стоил"]):
-        category = "finance"
+    # Словарь армянских и числительных замен для распознавания сумм
+    num_words = {
+        "հիսուն": 50, "տաս": 10, "քսան": 20, "երեսուն": 30, "քառասուն": 40,
+        "հարյուր": 100, "հազար": 1000, "пятьдесят": 50, "сто": 100, "тысяча": 1000
+    }
+
+    # Ищем обычные цифры или числа прописью
+    numbers = re.findall(r'\d+', text)
+    if numbers:
         amount = float(numbers[0])
-    elif "привычк" in text_lower or "каждый день" in text_lower:
-        category = "habit"
-        
+    else:
+        for word, val in num_words.items():
+            if word in text_lower:
+                amount = float(val)
+                break
+
+    # Ключевые слова расходов (RU, EN, HY)
+    finance_keywords = [
+        "руб", "$", "драм", "֏", "купил", "потратил", "цена", "стоил", "кофе", "кофե",
+        "dollar", "dolar", "դոլար", "դրամ", "ծախս", "գնեցի", "կոֆե", "սուրճ", "ստացա"
+    ]
+
+    # Если есть ключевое слово расхода ИЛИ сумма > 0 — переводим в FINANCE
+    if amount > 0 or any(k in text_lower for k in finance_keywords):
+        category = "finance"
+        if amount == 0.0:
+            amount = 1.0  # Дефолтная сумма, если число не распознано
+
     record = models.Record(
         user_id=user.id,
         category=category,
