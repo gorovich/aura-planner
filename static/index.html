@@ -81,7 +81,7 @@
         <div id="view-digest" class="view-section active">
             <div class="sgx-card">
                 <div class="card-header">Свободный баланс</div>
-                <div class="balance-val" id="totalBalance">0 ֏</div>
+                <div class="balance-val" id="totalBalance">0.00 ֏</div>
             </div>
             <div class="grid-2">
                 <div class="sgx-card" onclick="switchView('tasks', document.querySelectorAll('.nav-item')[1])">
@@ -90,7 +90,7 @@
                 </div>
                 <div class="sgx-card" onclick="switchView('finance', document.querySelectorAll('.nav-item')[2])">
                     <div class="card-header">Расходы</div>
-                    <div style="font-size: 1.3rem; font-weight:700; color:var(--accent-red);" id="cntExpenses">0 ֏</div>
+                    <div style="font-size: 1.3rem; font-weight:700; color:var(--accent-red);" id="cntExpenses">0.00 ֏</div>
                 </div>
             </div>
             <h4 style="margin: 12px 0 8px 0; font-size: 0.85rem; color: var(--text-muted);">Дайджест за день</h4>
@@ -269,6 +269,7 @@
                 if (r.category === 'task') taskCnt++;
 
                 const isIncome = r.type === 'income';
+                const formattedAmount = (r.amount || 0).toFixed(2);
                 const row = document.createElement('div');
                 row.className = 'item-row';
                 row.innerHTML = `
@@ -278,7 +279,7 @@
                         </div>
                         <div>
                             <div style="font-size:0.88rem; font-weight:600;">${r.title}</div>
-                            <div style="font-size:0.72rem; color:var(--text-muted);">${r.category.toUpperCase()} ${r.amount ? '• ' + (isIncome ? '+' : '-') + r.amount + ' ' + (r.currency || userCurrency) : ''}</div>
+                            <div style="font-size:0.72rem; color:var(--text-muted);">${r.category.toUpperCase()} ${r.amount ? '• ' + (isIncome ? '+' : '-') + formattedAmount + ' ' + (r.currency || userCurrency) : ''}</div>
                         </div>
                     </div>
                     <button class="delete-btn" onclick="deleteRecord(${r.id})"><i class="fa-solid fa-trash"></i></button>
@@ -290,9 +291,9 @@
             });
 
             const currSymbol = userCurrency === 'AMD' ? '֏' : (userCurrency === 'USD' ? '$' : '₽');
-            document.getElementById('cntExpenses').innerText = expTotal + ' ' + currSymbol;
+            document.getElementById('cntExpenses').innerText = expTotal.toFixed(2) + ' ' + currSymbol;
             document.getElementById('cntTasks').innerText = taskCnt;
-            document.getElementById('totalBalance').innerText = (incTotal - expTotal) + ' ' + currSymbol;
+            document.getElementById('totalBalance').innerText = (incTotal - expTotal).toFixed(2) + ' ' + currSymbol;
         }
 
         loadUserInfo().then(loadData);
