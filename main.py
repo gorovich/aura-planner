@@ -9,6 +9,7 @@ import httpx
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 import speech_recognition as sr
@@ -20,6 +21,17 @@ import models
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton
+
+# --- АВТО-МИГРАЦИЯ СТРУКТУРЫ БД ---
+try:
+    with engine.connect() as conn:
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS currency VARCHAR DEFAULT 'AMD';"))
+        conn.execute(text("ALTER TABLE records ADD COLUMN IF NOT EXISTS type VARCHAR DEFAULT 'expense';"))
+        conn.execute(text("ALTER TABLE records ADD COLUMN IF NOT EXISTS currency VARCHAR DEFAULT 'AMD';"))
+        conn.commit()
+        print("Database schema successfully migrated!")
+except Exception as e:
+    print(f"Migration notice: {e}")
 
 Base.metadata.create_all(bind=engine)
 
@@ -43,18 +55,18 @@ recognizer = sr.Recognizer()
 # --- КУРСЫ ВАЛЮТ ДЛЯ КОНВЕРТАЦИИ ---
 RATES_TO_USD = {
     "USD": 1.0,
-    "AMD": 0.00258, # ~388 AMD za 1 USD
-    "RUB": 0.011    # ~90 RUB za 1 USD
+    "AMD": 0.00258,  # ~388 AMD за 1 USD
+    "RUB": 0.011     # ~90 RUB за 1 USD
 }
 
 def convert_currency(amount: float, from_curr: str, to_curr: str) -> float:
-    if from_curr == to_curr:
+    if from_curr == to_curr or amount == 0:
         return amount
-    # Переводим сначала в USD, затем в целевую валюту
     amount_in_usd = amount * RATES_TO_USD.get(from_curr, 1.0)
     target_rate = RATES_TO_USD.get(to_curr, 1.0)
     return round(amount_in_usd / target_rate, 2)
 
+# --- БЕСПЛАТНОЕ РАСПОЗНАВАНИЕ РЕЧИ (HY / RU) ---
 def recognize_speech_free(audio_bytes: bytes) -> str:
     try:
         audio_stream = io.BytesIO(audio_bytes)
@@ -66,6 +78,8 @@ def recognize_speech_free(audio_bytes: bytes) -> str:
 
         with sr.AudioFile(wav_stream) as source:
             audio_data = recognizer.record(source)
+            
+            # 1. Пробуем армянский
             try:
                 text_hy = recognizer.recognize_google(audio_data, language="hy-AM")
                 if text_hy and len(text_hy.strip()) > 0:
@@ -73,6 +87,7 @@ def recognize_speech_free(audio_bytes: bytes) -> str:
             except sr.UnknownValueError:
                 pass
             
+            # 2. Пробуем русский
             try:
                 text_ru = recognizer.recognize_google(audio_data, language="ru-RU")
                 if text_ru and len(text_ru.strip()) > 0:
@@ -80,7 +95,7 @@ def recognize_speech_free(audio_bytes: bytes) -> str:
             except sr.UnknownValueError:
                 pass
     except Exception as e:
-        print(f"Error audio: {e}")
+        print(f"Audio processing error: {e}")
     return ""
 
 # --- SCHEMAS ---
@@ -95,7 +110,7 @@ class RecordCreate(BaseModel):
 class ShortcutPayload(BaseModel):
     text: str
 
-# --- УМНЫЙ ПАРСЕР С ЧИСЛИИТЕЛЬНЫМИ И ВАЛЮТАМИ ---
+# --- УМНЫЙ ПАРСЕР ТЕКСТА ---
 def parse_and_save(telegram_id: int, text: str, db: Session):
     user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
     if not user:
@@ -110,7 +125,7 @@ def parse_and_save(telegram_id: int, text: str, db: Session):
     detected_currency = None
     text_lower = text.lower()
 
-    # 1. Поиск валюты фразы
+    # 1. Определение валюты из фразы
     if any(k in text_lower for k in ["доллар", "dollar", "dolar", "$", "դոլար"]):
         detected_currency = "USD"
     elif any(k in text_lower for k in ["рубл", "руб", "rub", "рублей", "ռուբլի"]):
@@ -120,19 +135,17 @@ def parse_and_save(telegram_id: int, text: str, db: Session):
     else:
         detected_currency = base_currency
 
-    # 2. Продвинутый парсинг числительных (включая составные)
-    # Ищем обычные числа ("50000", "50.000")
+    # 2. Числовой парсинг (включая "50000" и "50 тыс" / "50 հազար")
     clean_text = text_lower.replace(".", "").replace(",", "")
     numbers = re.findall(r'\d+', clean_text)
     
     if numbers:
         amount = float(numbers[0])
-        # Проверка тысячных приставок ("50 тыс", "50 հազար")
         if "тыс" in text_lower or "հազար" in text_lower or "k" in text_lower:
             if amount < 1000:
                 amount *= 1000
     else:
-        # Словарный парсинг армянских и русских чисел
+        # Словарный парсинг составных чисел (например: հիսուն հազար)
         words = text_lower.split()
         multiplier = 1
         base_val = 0
@@ -153,7 +166,7 @@ def parse_and_save(telegram_id: int, text: str, db: Session):
         if base_val > 0:
             amount = float(base_val * multiplier)
 
-    # 3. Определение категории (Finance vs Task)
+    # 3. Определение категории и типа (Income vs Expense vs Task)
     income_keywords = ["зарплат", "доход", "получил", "перевод", "ստացա", "եկամուտ", "прибыль"]
     expense_keywords = ["руб", "$", "драм", "֏", "купил", "потратил", "цена", "кофе", "կոֆե", "ծախս", "գնեցի", "սուրճ", "инвестиц"]
 
@@ -164,7 +177,7 @@ def parse_and_save(telegram_id: int, text: str, db: Session):
         category = "finance"
         rec_type = "expense"
 
-    # 4. Автоматический конвертер валют в базовую валюту профиля
+    # 4. Конвертация валюты в основную валюту аккаунта
     if category == "finance" and amount > 0:
         amount = convert_currency(amount, detected_currency, base_currency)
 
@@ -181,7 +194,7 @@ def parse_and_save(telegram_id: int, text: str, db: Session):
     db.refresh(record)
     return record
 
-# --- REST API ---
+# --- REST API МАРШРУТЫ ---
 
 @app.get("/", response_class=HTMLResponse)
 async def read_index():
@@ -310,6 +323,7 @@ async def handle_voice_message(message: types.Message):
     emoji = "📈" if rec.type == "income" else ("💸" if rec.category == "finance" else "✅")
     await message.answer(f"🎙 {emoji} **Распознано:** «{rec.title}»\nСумма: **{rec.amount} {rec.currency}**", parse_mode="Markdown")
 
+# --- KEEP ALIVE (Защита от засыпания Render) ---
 async def keep_alive():
     await asyncio.sleep(30)
     ping_url = f"{WEBAPP_URL}/ping"
