@@ -3,139 +3,159 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Aura OS Planner</title>
+    <title>Aura OS Pro</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         :root {
-            --bg-main: #090d16;
-            --card-bg: rgba(22, 30, 46, 0.75);
-            --accent-primary: #6366f1;
+            --bg-dark: #080a0f;
+            --card-glass: rgba(18, 24, 38, 0.75);
+            --card-border: rgba(255, 255, 255, 0.08);
+            --accent-indigo: #6366f1;
             --accent-green: #10b981;
-            --accent-red: #f43f5e;
-            --text-white: #f8fafc;
-            --text-muted: #64748b;
-            --border-glow: rgba(255, 255, 255, 0.08);
+            --accent-rose: #f43f5e;
+            --text-main: #f8fafc;
+            --text-sub: #64748b;
         }
 
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif; -webkit-tap-highlight-color: transparent; }
-        body { background-color: var(--bg-main); color: var(--text-white); padding-bottom: 95px; min-height: 100vh; }
+        body { background-color: var(--bg-dark); color: var(--text-main); padding-bottom: 95px; min-height: 100vh; overflow-x: hidden; }
         .app-container { max-width: 480px; margin: 0 auto; padding: 16px; }
 
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
-        .user-badge { display: flex; align-items: center; gap: 10px; }
-        .avatar { width: 38px; height: 38px; border-radius: 12px; background: linear-gradient(135deg, #6366f1, #a855f7); display: flex; align-items: center; justify-content: center; font-weight: bold; }
+        /* Header */
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .user-badge { display: flex; align-items: center; gap: 12px; }
+        .avatar { width: 42px; height: 42px; border-radius: 14px; background: linear-gradient(135deg, #6366f1, #a855f7); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 1.1rem; box-shadow: 0 4px 15px rgba(99,102,241,0.3); }
 
-        .view-section { display: none; }
+        /* Navigation Views */
+        .view-section { display: none; animation: fadeIn 0.25s ease-in-out; }
         .view-section.active { display: block; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 
-        .sgx-card { background: var(--card-bg); backdrop-filter: blur(16px); border: 1px solid var(--border-glow); border-radius: 20px; padding: 16px; margin-bottom: 12px; }
-        .card-header { display: flex; justify-content: space-between; color: var(--text-muted); font-size: 0.8rem; margin-bottom: 6px; text-transform: uppercase; }
-        .balance-val { font-size: 1.8rem; font-weight: 800; }
+        /* SGX Pro Cards */
+        .glass-card { background: var(--card-glass); backdrop-filter: blur(20px); border: 1px solid var(--card-border); border-radius: 22px; padding: 18px; margin-bottom: 14px; box-shadow: 0 8px 32px rgba(0,0,0,0.3); }
+        .card-label { font-size: 0.75rem; color: var(--text-sub); text-transform: uppercase; letter-spacing: 0.8px; font-weight: 600; margin-bottom: 6px; }
+        .balance-hero { font-size: 2.1rem; font-weight: 800; letter-spacing: -0.5px; background: linear-gradient(180deg, #fff, #cbd5e1); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
 
-        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
-        .item-row { background: var(--card-bg); border: 1px solid var(--border-glow); border-radius: 16px; padding: 12px 14px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
-        .item-info { display: flex; align-items: center; gap: 12px; }
-        .item-icon { width: 34px; height: 34px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 0.9rem; }
-        .delete-btn { background: transparent; border: none; color: var(--text-muted); cursor: pointer; padding: 4px; }
+        /* Item Row */
+        .item-card { background: var(--card-glass); border: 1px solid var(--card-border); border-radius: 18px; padding: 14px 16px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; transition: transform 0.15s; }
+        .item-card:active { transform: scale(0.98); }
+        .item-left { display: flex; align-items: center; gap: 12px; }
+        .item-icon { width: 40px; height: 40px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1rem; }
+        .delete-btn { background: transparent; border: none; color: var(--text-sub); cursor: pointer; padding: 6px; transition: color 0.2s; }
+        .delete-btn:hover { color: var(--accent-rose); }
 
-        .floating-input { 
+        /* Floating Input Smart Bar */
+        .floating-bar { 
             position: fixed; bottom: 75px; left: 50%; transform: translateX(-50%); 
             width: calc(100% - 32px); max-width: 448px; 
-            background: rgba(22, 30, 46, 0.9); backdrop-filter: blur(20px); 
-            border: 1px solid rgba(255,255,255,0.15); border-radius: 25px; 
+            background: rgba(18, 24, 38, 0.88); backdrop-filter: blur(24px); 
+            border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 28px; 
             padding: 6px 12px; display: flex; align-items: center; gap: 8px; 
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5); z-index: 100; 
+            box-shadow: 0 12px 40px rgba(0,0,0,0.6); z-index: 100; 
         }
-        .floating-input input { flex: 1; background: transparent; border: none; color: white; outline: none; font-size: 0.9rem; }
-        .mic-btn { width: 36px; height: 36px; border-radius: 50%; background: rgba(255,255,255,0.08); border: none; color: var(--text-white); cursor: pointer; display: flex; align-items: center; justify-content: center; }
-        .mic-btn.recording { background: var(--accent-red); animation: pulse 1.2s infinite; }
-        .send-btn { width: 36px; height: 36px; border-radius: 50%; background: var(--accent-primary); border: none; color: white; cursor: pointer; }
+        .floating-bar input { flex: 1; background: transparent; border: none; color: white; outline: none; font-size: 0.92rem; }
+        .mic-btn { width: 38px; height: 38px; border-radius: 50%; background: rgba(255,255,255,0.06); border: 1px solid var(--card-border); color: var(--text-main); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+        .mic-btn.recording { background: var(--accent-rose); animation: pulse 1.2s infinite; border-color: var(--accent-rose); }
+        .send-btn { width: 38px; height: 38px; border-radius: 50%; background: var(--accent-indigo); border: none; color: white; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(99,102,241,0.4); }
 
         @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
 
-        .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; background: rgba(9, 13, 22, 0.95); backdrop-filter: blur(20px); border-top: 1px solid var(--border-glow); height: 65px; display: flex; justify-content: space-around; align-items: center; z-index: 99; }
-        .nav-item { display: flex; flex-direction: column; align-items: center; gap: 3px; color: var(--text-muted); font-size: 0.65rem; border: none; background: transparent; cursor: pointer; width: 20%; }
-        .nav-item i { font-size: 1.1rem; }
-        .nav-item.active { color: var(--accent-primary); }
+        /* Bottom Navigation Bar (5 tabs) */
+        .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; background: rgba(8, 10, 15, 0.92); backdrop-filter: blur(24px); border-top: 1px solid var(--card-border); height: 68px; display: flex; justify-content: space-around; align-items: center; z-index: 99; }
+        .nav-tab { display: flex; flex-direction: column; align-items: center; gap: 4px; color: var(--text-sub); font-size: 0.65rem; border: none; background: transparent; cursor: pointer; width: 20%; transition: color 0.2s; }
+        .nav-tab i { font-size: 1.15rem; }
+        .nav-tab.active { color: var(--accent-indigo); font-weight: 600; }
+        .nav-tab.active.green { color: var(--accent-green); }
+        .nav-tab.active.rose { color: var(--accent-rose); }
 
-        .select-box { background: rgba(0,0,0,0.3); border: 1px solid var(--border-glow); color: white; padding: 8px 12px; border-radius: 10px; width: 100%; margin-top: 6px; outline: none; }
+        .select-field { background: rgba(0,0,0,0.3); border: 1px solid var(--card-border); color: white; padding: 10px 14px; border-radius: 12px; width: 100%; margin-top: 8px; outline: none; font-size: 0.9rem; }
     </style>
 </head>
 <body>
 
     <div class="app-container">
+        <!-- Header -->
         <div class="header">
             <div class="user-badge">
                 <div class="avatar" id="uAvatar">A</div>
                 <div>
-                    <h3 id="uName" style="font-size: 0.95rem;">Aura OS</h3>
-                    <p style="font-size: 0.7rem; color: var(--text-muted);">Дайджест</p>
+                    <h3 id="uName" style="font-size: 1rem; font-weight: 700;">Aura OS</h3>
+                    <p style="font-size: 0.72rem; color: var(--text-sub);" id="viewSubtitle">Дайджест и статистика</p>
                 </div>
             </div>
-            <i class="fa-solid fa-gear" style="color: var(--text-muted); cursor: pointer;" onclick="switchView('settings', document.querySelectorAll('.nav-item')[3])"></i>
+            <i class="fa-solid fa-sliders" style="color: var(--text-sub); font-size: 1.1rem; cursor: pointer;" onclick="switchTab('settings', document.querySelectorAll('.nav-tab')[4])"></i>
         </div>
 
         <!-- VIEW 1: DIGEST -->
         <div id="view-digest" class="view-section active">
-            <div class="sgx-card">
-                <div class="card-header">Свободный баланс</div>
-                <div class="balance-val" id="totalBalance">0.00 ֏</div>
+            <div class="glass-card">
+                <div class="card-label">Свободный баланс</div>
+                <div class="balance-hero" id="totalBalance">0.00 ֏</div>
             </div>
             <div class="grid-2">
-                <div class="sgx-card" onclick="switchView('tasks', document.querySelectorAll('.nav-item')[1])">
-                    <div class="card-header">Задачи</div>
-                    <div style="font-size: 1.3rem; font-weight:700;" id="cntTasks">0</div>
+                <div class="glass-card" onclick="switchTab('income', document.querySelectorAll('.nav-tab')[2])">
+                    <div class="card-label" style="color: var(--accent-green);">Доходы</div>
+                    <div style="font-size: 1.4rem; font-weight:800; color:var(--accent-green);" id="cntIncome">0.00 ֏</div>
                 </div>
-                <div class="sgx-card" onclick="switchView('finance', document.querySelectorAll('.nav-item')[2])">
-                    <div class="card-header">Расходы</div>
-                    <div style="font-size: 1.3rem; font-weight:700; color:var(--accent-red);" id="cntExpenses">0.00 ֏</div>
+                <div class="glass-card" onclick="switchTab('expense', document.querySelectorAll('.nav-tab')[3])">
+                    <div class="card-label" style="color: var(--accent-rose);">Расходы</div>
+                    <div style="font-size: 1.4rem; font-weight:800; color:var(--accent-rose);" id="cntExpenses">0.00 ֏</div>
                 </div>
             </div>
-            <h4 style="margin: 12px 0 8px 0; font-size: 0.85rem; color: var(--text-muted);">Дайджест за день</h4>
-            <div id="homeList"></div>
+            <h4 style="margin: 16px 0 10px 0; font-size: 0.85rem; color: var(--text-sub); text-transform: uppercase; letter-spacing: 0.5px;">Последняя активность</h4>
+            <div id="digestList"></div>
         </div>
 
         <!-- VIEW 2: TASKS -->
         <div id="view-tasks" class="view-section">
-            <h3 style="margin-bottom: 12px;">Задачи</h3>
+            <h3 style="margin-bottom: 14px; font-weight: 700;">Список задач</h3>
             <div id="tasksList"></div>
         </div>
 
-        <!-- VIEW 3: FINANCE -->
-        <div id="view-finance" class="view-section">
-            <h3 style="margin-bottom: 12px;">Финансы (Доходы и Расходы)</h3>
-            <div id="financeList"></div>
+        <!-- VIEW 3: INCOME -->
+        <div id="view-income" class="view-section">
+            <h3 style="margin-bottom: 14px; font-weight: 700; color: var(--accent-green);">Доходы и пополнения</h3>
+            <div id="incomeList"></div>
         </div>
 
-        <!-- VIEW 4: SETTINGS -->
+        <!-- VIEW 4: EXPENSES -->
+        <div id="view-expense" class="view-section">
+            <h3 style="margin-bottom: 14px; font-weight: 700; color: var(--accent-rose);">Расходы и траты</h3>
+            <div id="expenseList"></div>
+        </div>
+
+        <!-- VIEW 5: SETTINGS -->
         <div id="view-settings" class="view-section">
-            <h3 style="margin-bottom: 12px;">Настройки</h3>
-            <div class="sgx-card">
-                <div style="font-size:0.85rem; font-weight:600;">Основная валюта аккаунта</div>
-                <select id="userCurrSelect" class="select-box" onchange="updateCurrency(this.value)">
+            <h3 style="margin-bottom: 14px; font-weight: 700;">Настройки аккаунта</h3>
+            <div class="glass-card">
+                <div style="font-size:0.9rem; font-weight:600;">Основная валюта</div>
+                <div style="font-size:0.75rem; color:var(--text-sub); margin-top:2px;">Все операции будут автоматически конвертироваться в эту валюту</div>
+                <select id="userCurrSelect" class="select-field" onchange="updateCurrency(this.value)">
                     <option value="AMD">AMD (֏ - Армянский Драм)</option>
-                    <option value="USD">USD ($ - Доллар)</option>
-                    <option value="RUB">RUB (₽ - Русский Рубль)</option>
+                    <option value="USD">USD ($ - Доллар США)</option>
+                    <option value="RUB">RUB (₽ - Российский Рубль)</option>
                 </select>
             </div>
         </div>
     </div>
 
     <!-- Floating Bar -->
-    <div class="floating-input">
+    <div class="floating-bar">
         <input type="text" id="smartInput" placeholder="Напишите или надиктуйте..." onkeypress="if(event.key==='Enter') sendInput()">
         <button class="mic-btn" id="micBtn" onclick="toggleMic()"><i class="fa-solid fa-microphone"></i></button>
         <button class="send-btn" onclick="sendInput()"><i class="fa-solid fa-arrow-up"></i></button>
     </div>
 
-    <!-- Bottom Nav -->
+    <!-- Bottom Navigation Bar (5 tabs) -->
     <div class="bottom-nav">
-        <button class="nav-item active" onclick="switchView('digest', this)"><i class="fa-solid fa-layer-group"></i><span>Дайджест</span></button>
-        <button class="nav-item" onclick="switchView('tasks', this)"><i class="fa-solid fa-list-check"></i><span>Задачи</span></button>
-        <button class="nav-item" onclick="switchView('finance', this)"><i class="fa-solid fa-wallet"></i><span>Финансы</span></button>
-        <button class="nav-item" onclick="switchView('settings', this)"><i class="fa-solid fa-sliders"></i><span>Настройки</span></button>
+        <button class="nav-tab active" onclick="switchTab('digest', this)"><i class="fa-solid fa-chart-pie"></i><span>Обзор</span></button>
+        <button class="nav-tab" onclick="switchTab('tasks', this)"><i class="fa-solid fa-list-check"></i><span>Задачи</span></button>
+        <button class="nav-tab" onclick="switchTab('income', this)"><i class="fa-solid fa-arrow-down-left"></i><span>Доходы</span></button>
+        <button class="nav-tab" onclick="switchTab('expense', this)"><i class="fa-solid fa-arrow-up-right"></i><span>Расходы</span></button>
+        <button class="nav-tab" onclick="switchTab('settings', this)"><i class="fa-solid fa-gear"></i><span>Настройки</span></button>
     </div>
 
     <script>
@@ -243,56 +263,89 @@
             try { await fetch(`/api/records/${id}`, { method: 'DELETE' }); } catch(e) {}
         }
 
-        function switchView(viewName, btn) {
+        function switchTab(viewName, btn) {
             document.querySelectorAll('.view-section').forEach(v => v.classList.remove('active'));
-            document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.nav-tab').forEach(b => b.className = 'nav-tab');
             document.getElementById(`view-${viewName}`).classList.add('active');
-            if (btn) btn.classList.add('active');
+            
+            if (btn) {
+                btn.classList.add('active');
+                if (viewName === 'income') btn.classList.add('green');
+                if (viewName === 'expense') btn.classList.add('rose');
+            }
+
+            const subtitles = {
+                digest: 'Дайджест и статистика',
+                tasks: 'Ваши активные задачи',
+                income: 'Учет поступающих средств',
+                expense: 'Учет персональных трат',
+                settings: 'Параметры и интеграция'
+            };
+            document.getElementById('viewSubtitle').innerText = subtitles[viewName] || 'Aura OS Pro';
         }
 
         function render() {
-            const homeList = document.getElementById('homeList');
+            const digestList = document.getElementById('digestList');
             const tasksList = document.getElementById('tasksList');
-            const financeList = document.getElementById('financeList');
+            const incomeList = document.getElementById('incomeList');
+            const expenseList = document.getElementById('expenseList');
 
-            homeList.innerHTML = ''; tasksList.innerHTML = ''; financeList.innerHTML = '';
+            digestList.innerHTML = ''; tasksList.innerHTML = ''; incomeList.innerHTML = ''; expenseList.innerHTML = '';
 
             let expTotal = 0;
             let incTotal = 0;
-            let taskCnt = 0;
 
             records.forEach(r => {
+                const isIncome = r.type === 'income';
                 if (r.category === 'finance') {
-                    if (r.type === 'income') incTotal += (r.amount || 0);
+                    if (isIncome) incTotal += (r.amount || 0);
                     else expTotal += (r.amount || 0);
                 }
-                if (r.category === 'task') taskCnt++;
 
-                const isIncome = r.type === 'income';
                 const formattedAmount = (r.amount || 0).toFixed(2);
-                const row = document.createElement('div');
-                row.className = 'item-row';
-                row.innerHTML = `
-                    <div class="item-info">
-                        <div class="item-icon" style="background:${r.category==='finance'?(isIncome?'rgba(16,185,129,0.15)':'rgba(244,63,94,0.15)'):'rgba(99,102,241,0.15)'}; color:${r.category==='finance'?(isIncome?'#10b981':'#f43f5e'):'#6366f1'};">
-                            <i class="fa-solid ${r.category==='finance'?(isIncome?'fa-arrow-down-left':'fa-arrow-up-right'):'fa-check'}"></i>
+                const currSymbol = r.currency || userCurrency;
+
+                const card = document.createElement('div');
+                card.className = 'item-card';
+
+                let iconBg = 'rgba(99,102,241,0.15)';
+                let iconColor = '#6366f1';
+                let iconClass = 'fa-check';
+
+                if (r.category === 'finance') {
+                    if (isIncome) {
+                        iconBg = 'rgba(16,185,129,0.15)';
+                        iconColor = '#10b981';
+                        iconClass = 'fa-arrow-down-left';
+                    } else {
+                        iconBg = 'rgba(244,63,94,0.15)';
+                        iconColor = '#f43f5e';
+                        iconClass = 'fa-arrow-up-right';
+                    }
+                }
+
+                card.innerHTML = `
+                    <div class="item-left">
+                        <div class="item-icon" style="background:${iconBg}; color:${iconColor};">
+                            <i class="fa-solid ${iconClass}"></i>
                         </div>
                         <div>
-                            <div style="font-size:0.88rem; font-weight:600;">${r.title}</div>
-                            <div style="font-size:0.72rem; color:var(--text-muted);">${r.category.toUpperCase()} ${r.amount ? '• ' + (isIncome ? '+' : '-') + formattedAmount + ' ' + (r.currency || userCurrency) : ''}</div>
+                            <div style="font-size:0.9rem; font-weight:600;">${r.title}</div>
+                            <div style="font-size:0.72rem; color:var(--text-sub);">${r.category.toUpperCase()} ${r.amount ? '• ' + (isIncome ? '+' : '-') + formattedAmount + ' ' + currSymbol : ''}</div>
                         </div>
                     </div>
                     <button class="delete-btn" onclick="deleteRecord(${r.id})"><i class="fa-solid fa-trash"></i></button>
                 `;
 
-                homeList.appendChild(row.cloneNode(true));
-                if (r.category === 'task') tasksList.appendChild(row.cloneNode(true));
-                if (r.category === 'finance') financeList.appendChild(row.cloneNode(true));
+                digestList.appendChild(card.cloneNode(true));
+                if (r.category === 'task') tasksList.appendChild(card.cloneNode(true));
+                if (r.category === 'finance' && isIncome) incomeList.appendChild(card.cloneNode(true));
+                if (r.category === 'finance' && !isIncome) expenseList.appendChild(card.cloneNode(true));
             });
 
             const currSymbol = userCurrency === 'AMD' ? '֏' : (userCurrency === 'USD' ? '$' : '₽');
             document.getElementById('cntExpenses').innerText = expTotal.toFixed(2) + ' ' + currSymbol;
-            document.getElementById('cntTasks').innerText = taskCnt;
+            document.getElementById('cntIncome').innerText = incTotal.toFixed(2) + ' ' + currSymbol;
             document.getElementById('totalBalance').innerText = (incTotal - expTotal).toFixed(2) + ' ' + currSymbol;
         }
 
