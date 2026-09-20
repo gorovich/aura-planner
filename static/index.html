@@ -28,7 +28,6 @@
         body { background-color: var(--bg-black); color: var(--text-main); padding-bottom: 95px; min-height: 100vh; overflow-x: hidden; }
         .app-container { max-width: 480px; margin: 0 auto; padding: 16px; }
 
-        /* Gold Header */
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
         .user-badge { display: flex; align-items: center; gap: 12px; }
         .avatar { 
@@ -43,7 +42,6 @@
         .view-section.active { display: block; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 
-        /* Royal Cards */
         .glass-card { 
             background: var(--card-glass); backdrop-filter: blur(20px); 
             border: 1px solid var(--card-border); border-radius: 22px; 
@@ -60,13 +58,11 @@
 
         .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
-        /* Subtabs Switcher */
         .subtabs-container { display: flex; background: rgba(0,0,0,0.6); border: 1px solid var(--card-border); border-radius: 16px; padding: 4px; margin-bottom: 16px; }
         .subtab-btn { flex: 1; padding: 10px; border: none; background: transparent; color: var(--text-sub); font-weight: 700; font-size: 0.88rem; border-radius: 12px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px; }
         .subtab-btn.active.inc { background: linear-gradient(135deg, #059669, #10b981); color: white; box-shadow: 0 4px 15px var(--emerald-glow); }
         .subtab-btn.active.exp { background: linear-gradient(135deg, #e11d48, #f43f5e); color: white; box-shadow: 0 4px 15px rgba(244,63,94,0.3); }
 
-        /* Item Cards with High-Contrast Icons */
         .item-card { background: var(--card-glass); border: 1px solid var(--card-border); border-radius: 18px; padding: 14px 16px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; transition: transform 0.15s; }
         .item-card:active { transform: scale(0.98); }
         .item-left { display: flex; align-items: center; gap: 14px; }
@@ -74,7 +70,6 @@
         .delete-btn { background: transparent; border: none; color: var(--text-sub); cursor: pointer; padding: 6px; transition: color 0.2s; }
         .delete-btn:hover { color: var(--ruby-rose); }
 
-        /* Floating Gold Input Bar */
         .floating-bar { 
             position: fixed; bottom: 75px; left: 50%; transform: translateX(-50%); 
             width: calc(100% - 32px); max-width: 448px; 
@@ -90,7 +85,6 @@
 
         @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
 
-        /* Bottom Nav Bar */
         .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; background: rgba(8, 8, 6, 0.95); backdrop-filter: blur(24px); border-top: 1px solid var(--card-border); height: 68px; display: flex; justify-content: space-around; align-items: center; z-index: 99; }
         .nav-tab { display: flex; flex-direction: column; align-items: center; gap: 4px; color: var(--text-sub); font-size: 0.68rem; border: none; background: transparent; cursor: pointer; width: 25%; transition: color 0.2s; }
         .nav-tab i { font-size: 1.2rem; }
@@ -117,26 +111,26 @@
         <!-- VIEW 1: DIGEST -->
         <div id="view-digest" class="view-section active">
             <div class="glass-card">
-                <div class="card-label">Чистый Баланс</div>
+                <div class="card-label" id="lblNetBalance">Чистый Баланс</div>
                 <div class="balance-hero" id="totalBalance">0.00 ֏</div>
             </div>
             <div class="grid-2">
                 <div class="glass-card" onclick="switchTab('finance', document.querySelectorAll('.nav-tab')[2]); switchFinSubtab('income');">
-                    <div class="card-label" style="color: var(--emerald-green);">Доходы</div>
+                    <div class="card-label" style="color: var(--emerald-green);" id="lblIncome">Доходы</div>
                     <div style="font-size: 1.35rem; font-weight:800; color:var(--emerald-green);" id="cntIncome">0.00 ֏</div>
                 </div>
                 <div class="glass-card" onclick="switchTab('finance', document.querySelectorAll('.nav-tab')[2]); switchFinSubtab('expense');">
-                    <div class="card-label" style="color: var(--ruby-rose);">Расходы</div>
+                    <div class="card-label" style="color: var(--ruby-rose);" id="lblExpense">Расходы</div>
                     <div style="font-size: 1.35rem; font-weight:800; color:var(--ruby-rose);" id="cntExpenses">0.00 ֏</div>
                 </div>
             </div>
-            <h4 style="margin: 16px 0 10px 0; font-size: 0.82rem; color: var(--text-sub); text-transform: uppercase; letter-spacing: 1px;">Последняя активность</h4>
+            <h4 style="margin: 16px 0 10px 0; font-size: 0.82rem; color: var(--text-sub); text-transform: uppercase; letter-spacing: 1px;" id="lblRecentActivity">Последняя активность</h4>
             <div id="digestList"></div>
         </div>
 
         <!-- VIEW 2: TASKS -->
         <div id="view-tasks" class="view-section">
-            <h3 style="margin-bottom: 14px; font-weight: 800; color: var(--gold-light);">Задачи и дела</h3>
+            <h3 style="margin-bottom: 14px; font-weight: 800; color: var(--gold-light);" id="titleTasks">Задачи и дела</h3>
             <div id="tasksList"></div>
         </div>
 
@@ -144,10 +138,10 @@
         <div id="view-finance" class="view-section">
             <div class="subtabs-container">
                 <button class="subtab-btn active exp" id="btnSubExp" onclick="switchFinSubtab('expense')">
-                    <i class="fa-solid fa-arrow-up-long"></i> Расходы
+                    <i class="fa-solid fa-arrow-up-long"></i> <span id="lblBtnExpense">Расходы</span>
                 </button>
                 <button class="subtab-btn" id="btnSubInc" onclick="switchFinSubtab('income')">
-                    <i class="fa-solid fa-arrow-down-long"></i> Доходы
+                    <i class="fa-solid fa-arrow-down-long"></i> <span id="lblBtnIncome">Доходы</span>
                 </button>
             </div>
             <div id="financeItemsList"></div>
@@ -155,10 +149,21 @@
 
         <!-- VIEW 4: SETTINGS -->
         <div id="view-settings" class="view-section">
-            <h3 style="margin-bottom: 14px; font-weight: 800; color: var(--gold-light);">Настройки аккаунта</h3>
+            <h3 style="margin-bottom: 14px; font-weight: 800; color: var(--gold-light);" id="titleSettings">Настройки аккаунта</h3>
+            
             <div class="glass-card">
-                <div style="font-size:0.9rem; font-weight:700;">Валюта аккаунта</div>
-                <div style="font-size:0.75rem; color:var(--text-sub); margin-top:2px;">Автоматическая конвертация всех операций</div>
+                <div style="font-size:0.9rem; font-weight:700;" id="lblAppLang">Язык приложения</div>
+                <div style="font-size:0.75rem; color:var(--text-sub); margin-top:2px;" id="lblAppLangSub">Выберите язык интерфейса</div>
+                <select id="userLangSelect" class="select-field" onchange="updateLanguage(this.value)">
+                    <option value="ru">Русский 🇷🇺</option>
+                    <option value="hy">Հայերեն 🇦🇲</option>
+                    <option value="en">English 🇬🇧</option>
+                </select>
+            </div>
+
+            <div class="glass-card">
+                <div style="font-size:0.9rem; font-weight:700;" id="lblBaseCurr">Валюта аккаунта</div>
+                <div style="font-size:0.75rem; color:var(--text-sub); margin-top:2px;" id="lblBaseCurrSub">Автоматическая конвертация всех операций</div>
                 <select id="userCurrSelect" class="select-field" onchange="updateCurrency(this.value)">
                     <option value="AMD">AMD (֏ - Армянский Драм)</option>
                     <option value="USD">USD ($ - Доллар США)</option>
@@ -177,10 +182,10 @@
 
     <!-- Bottom Nav -->
     <div class="bottom-nav">
-        <button class="nav-tab active" onclick="switchTab('digest', this)"><i class="fa-solid fa-chart-pie"></i><span>Обзор</span></button>
-        <button class="nav-tab" onclick="switchTab('tasks', this)"><i class="fa-solid fa-list-check"></i><span>Задачи</span></button>
-        <button class="nav-tab" onclick="switchTab('finance', this)"><i class="fa-solid fa-wallet"></i><span>Финансы</span></button>
-        <button class="nav-tab" onclick="switchTab('settings', this)"><i class="fa-solid fa-gear"></i><span>Настройки</span></button>
+        <button class="nav-tab active" onclick="switchTab('digest', this)"><i class="fa-solid fa-chart-pie"></i><span id="navDigest">Обзор</span></button>
+        <button class="nav-tab" onclick="switchTab('tasks', this)"><i class="fa-solid fa-list-check"></i><span id="navTasks">Задачи</span></button>
+        <button class="nav-tab" onclick="switchTab('finance', this)"><i class="fa-solid fa-wallet"></i><span id="navFinance">Финансы</span></button>
+        <button class="nav-tab" onclick="switchTab('settings', this)"><i class="fa-solid fa-gear"></i><span id="navSettings">Настройки</span></button>
     </div>
 
     <script>
@@ -193,9 +198,65 @@
             document.getElementById('uAvatar').innerText = (tg.initDataUnsafe.user.first_name || 'A')[0].toUpperCase();
         }
 
+        const i18n = {
+            ru: {
+                netBalance: "Чистый Баланс",
+                income: "Доходы",
+                expense: "Расходы",
+                recentActivity: "Последняя активность",
+                titleTasks: "Задачи и дела",
+                titleSettings: "Настройки аккаунта",
+                appLang: "Язык приложения",
+                appLangSub: "Выберите язык интерфейса",
+                baseCurr: "Валюта аккаунта",
+                baseCurrSub: "Автоматическая конвертация всех операций",
+                inputPlaceholder: "Напишите или надиктуйте...",
+                navDigest: "Обзор", navTasks: "Задачи", navFinance: "Финансы", navSettings: "Настройки",
+                subDigest: "Royal Gold Edition", subTasks: "Ваши активные задачи",
+                subFinance: "Управление доходами и расходами", subSettings: "Параметры и интеграции",
+                tagTask: "ЗАДАЧА", tagIncome: "ДОХОД", tagExpense: "РАСХОД"
+            },
+            hy: {
+                netBalance: "Մաքուր Մնացորդ",
+                income: "Եկամուտներ",
+                expense: "Ծախսեր",
+                recentActivity: "Վերջին ակտիվությունը",
+                titleTasks: "Առաջադրանքներ",
+                titleSettings: "Հաշվի կարգավորումներ",
+                appLang: "Հավելվածի լեզուն",
+                appLangSub: "Ընտրեք ինտերֆեյսի լեզուն",
+                baseCurr: "Հիմնական արժույթը",
+                baseCurrSub: "Գործարքների ավտոմատ փոխարկում",
+                inputPlaceholder: "Գրեք կամ ձայնագրեք...",
+                navDigest: "Տեսք", navTasks: "Գործեր", navFinance: "Ֆինանսներ", navSettings: "Կարգավորումներ",
+                subDigest: "Royal Gold Edition", subTasks: "Ձեր ակտիվ առաջադրանքները",
+                subFinance: "Եկամուտների և ծախսերի կառավարում", subSettings: "Պարամետրեր և ինտեգրում",
+                tagTask: "ԳՈՐԾ", tagIncome: "ԵԿԱՄՈՒՏ", tagExpense: "ԾԱԽՍ"
+            },
+            en: {
+                netBalance: "Net Balance",
+                income: "Income",
+                expense: "Expenses",
+                recentActivity: "Recent Activity",
+                titleTasks: "Tasks & To-Dos",
+                titleSettings: "Account Settings",
+                appLang: "App Language",
+                appLangSub: "Choose interface language",
+                baseCurr: "Account Currency",
+                baseCurrSub: "Auto-convert all transactions",
+                inputPlaceholder: "Type or speak...",
+                navDigest: "Overview", navTasks: "Tasks", navFinance: "Finance", navSettings: "Settings",
+                subDigest: "Royal Gold Edition", subTasks: "Your active tasks",
+                subFinance: "Income and expense management", subSettings: "Parameters and integrations",
+                tagTask: "TASK", tagIncome: "INCOME", tagExpense: "EXPENSE"
+            }
+        };
+
         let records = [];
         let userCurrency = "AMD";
+        let userLanguage = localStorage.getItem('aura_lang') || "ru";
         let activeFinSubtab = 'expense';
+        let activeTab = 'digest';
         let mediaRecorder = null;
         let audioChunks = [];
         let isRecording = false;
@@ -206,8 +267,27 @@
                 if (res.ok) {
                     const data = await res.json();
                     userCurrency = data.currency || "AMD";
+                    if (data.language) {
+                        userLanguage = data.language;
+                        localStorage.setItem('aura_lang', userLanguage);
+                    }
                     document.getElementById('userCurrSelect').value = userCurrency;
+                    document.getElementById('userLangSelect').value = userLanguage;
                 }
+            } catch(e) {}
+            applyLanguage();
+        }
+
+        async function updateLanguage(lang) {
+            userLanguage = lang;
+            localStorage.setItem('aura_lang', lang);
+            applyLanguage();
+            try {
+                await fetch('/api/user/settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ telegram_id: tgId, language: lang })
+                });
             } catch(e) {}
         }
 
@@ -221,6 +301,35 @@
                 });
             } catch(e) {}
             loadData();
+        }
+
+        function applyLanguage() {
+            const t = i18n[userLanguage] || i18n.ru;
+            
+            document.getElementById('lblNetBalance').innerText = t.netBalance;
+            document.getElementById('lblIncome').innerText = t.income;
+            document.getElementById('lblExpense').innerText = t.expense;
+            document.getElementById('lblRecentActivity').innerText = t.recentActivity;
+            document.getElementById('titleTasks').innerText = t.titleTasks;
+            document.getElementById('titleSettings').innerText = t.titleSettings;
+            document.getElementById('lblAppLang').innerText = t.appLang;
+            document.getElementById('lblAppLangSub').innerText = t.appLangSub;
+            document.getElementById('lblBaseCurr').innerText = t.baseCurr;
+            document.getElementById('lblBaseCurrSub').innerText = t.baseCurrSub;
+            document.getElementById('lblBtnExpense').innerText = t.expense;
+            document.getElementById('lblBtnIncome').innerText = t.income;
+            
+            document.getElementById('smartInput').placeholder = t.inputPlaceholder;
+            
+            document.getElementById('navDigest').innerText = t.navDigest;
+            document.getElementById('navTasks').innerText = t.navTasks;
+            document.getElementById('navFinance').innerText = t.navFinance;
+            document.getElementById('navSettings').innerText = t.navSettings;
+
+            const subMap = { digest: t.subDigest, tasks: t.subTasks, finance: t.subFinance, settings: t.subSettings };
+            document.getElementById('viewSubtitle').innerText = subMap[activeTab] || t.subDigest;
+
+            render();
         }
 
         async function toggleMic() {
@@ -290,18 +399,15 @@
         }
 
         function switchTab(viewName, btn) {
+            activeTab = viewName;
             document.querySelectorAll('.view-section').forEach(v => v.classList.remove('active'));
             document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
             document.getElementById(`view-${viewName}`).classList.add('active');
             if (btn) btn.classList.add('active');
 
-            const subtitles = {
-                digest: 'Royal Gold Edition',
-                tasks: 'Ваши активные задачи',
-                finance: 'Управление доходами и расходами',
-                settings: 'Параметры и интеграции'
-            };
-            document.getElementById('viewSubtitle').innerText = subtitles[viewName] || 'Aura OS';
+            const t = i18n[userLanguage] || i18n.ru;
+            const subMap = { digest: t.subDigest, tasks: t.subTasks, finance: t.subFinance, settings: t.subSettings };
+            document.getElementById('viewSubtitle').innerText = subMap[viewName] || t.subDigest;
         }
 
         function switchFinSubtab(type) {
@@ -320,6 +426,7 @@
         }
 
         function createCardElement(r) {
+            const t = i18n[userLanguage] || i18n.ru;
             const isIncome = r.type === 'income';
             const formattedAmount = (r.amount || 0).toFixed(2);
             const currSymbol = r.currency || userCurrency;
@@ -330,16 +437,19 @@
             let iconBg = 'rgba(212,175,55,0.12)';
             let iconColor = '#d4af37';
             let iconClass = 'fa-check';
+            let tagText = t.tagTask;
 
             if (r.category === 'finance') {
                 if (isIncome) {
                     iconBg = 'rgba(16,185,129,0.2)';
                     iconColor = '#10b981';
                     iconClass = 'fa-arrow-down-long';
+                    tagText = t.tagIncome;
                 } else {
                     iconBg = 'rgba(244,63,94,0.2)';
                     iconColor = '#f43f5e';
                     iconClass = 'fa-arrow-up-long';
+                    tagText = t.tagExpense;
                 }
             }
 
@@ -351,7 +461,7 @@
                     <div>
                         <div style="font-size:0.92rem; font-weight:700; color:#fff;">${r.title}</div>
                         <div style="font-size:0.75rem; color:var(--text-sub); margin-top:2px;">
-                            ${r.category.toUpperCase()} ${r.amount ? '• <span style="color:'+iconColor+'; font-weight:bold;">' + (isIncome ? '+' : '-') + formattedAmount + ' ' + currSymbol + '</span>' : ''}
+                            ${tagText} ${r.amount ? '• <span style="color:'+iconColor+'; font-weight:bold;">' + (isIncome ? '+' : '-') + formattedAmount + ' ' + currSymbol + '</span>' : ''}
                         </div>
                     </div>
                 </div>
