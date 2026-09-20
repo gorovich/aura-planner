@@ -36,7 +36,34 @@ dp = Dispatcher()
 recognizer = sr.Recognizer()
 
 
-# --- ФОНОВЫЕ ЗАДАЧИ И ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ СТАРТА ---
+# --- СИНХРОННЫЕ МИГРАЦИИ БД (ВЫНЕСЕНЫ ИЗ ГЛАВНОГО ПОТОКА) ---
+def run_db_migrations():
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS currency VARCHAR DEFAULT 'AMD';"))
+            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS language VARCHAR DEFAULT 'ru';"))
+            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR;"))
+            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name VARCHAR;"))
+            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE;"))
+            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_blocked BOOLEAN DEFAULT FALSE;"))
+            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_premium BOOLEAN DEFAULT FALSE;"))
+            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS bot_active BOOLEAN DEFAULT TRUE;"))
+            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;"))
+            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;"))
+            
+            conn.execute(text("ALTER TABLE records ADD COLUMN IF NOT EXISTS type VARCHAR DEFAULT 'expense';"))
+            conn.execute(text("ALTER TABLE records ADD COLUMN IF NOT EXISTS currency VARCHAR DEFAULT 'AMD';"))
+            
+            conn.execute(text(f"UPDATE users SET is_admin = TRUE WHERE telegram_id = {ADMIN_TELEGRAM_ID};"))
+            conn.commit()
+            print("Database schema successfully migrated!")
+    except Exception as e:
+        print(f"Migration notice: {e}")
+
+    Base.metadata.create_all(bind=engine)
+
+
+# --- ФОНОВЫЕ ЗАДАЧИ ---
 async def run_bot():
     await asyncio.sleep(3)
     await dp.start_polling(bot, handle_signals=False)
@@ -91,42 +118,19 @@ async def daily_digest_scheduler():
         await asyncio.sleep(300)
 
 
-# --- ЖИЗНЕННЫЙ ЦИКЛ ПРИЛОЖЕНИЯ (LIFESPAN ДЛЯ RENDER) ---
+# --- ЖИЗНЕННЫЙ ЦИКЛ ПРИЛОЖЕНИЯ (LIFESPAN) ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 1. Автоматическая миграция БД при старте
-    try:
-        with engine.connect() as conn:
-            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS currency VARCHAR DEFAULT 'AMD';"))
-            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS language VARCHAR DEFAULT 'ru';"))
-            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR;"))
-            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name VARCHAR;"))
-            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE;"))
-            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_blocked BOOLEAN DEFAULT FALSE;"))
-            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_premium BOOLEAN DEFAULT FALSE;"))
-            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS bot_active BOOLEAN DEFAULT TRUE;"))
-            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;"))
-            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;"))
-            
-            conn.execute(text("ALTER TABLE records ADD COLUMN IF NOT EXISTS type VARCHAR DEFAULT 'expense';"))
-            conn.execute(text("ALTER TABLE records ADD COLUMN IF NOT EXISTS currency VARCHAR DEFAULT 'AMD';"))
-            
-            conn.execute(text(f"UPDATE users SET is_admin = TRUE WHERE telegram_id = {ADMIN_TELEGRAM_ID};"))
-            conn.commit()
-            print("Database schema successfully migrated!")
-    except Exception as e:
-        print(f"Migration notice: {e}")
+    # Выполняем синхронную работу с БД в отдельном потоке (to_thread)
+    # Это предотвращает заморозку Event Loop при запуске Uvicorn
+    await asyncio.to_thread(run_db_migrations)
 
-    Base.metadata.create_all(bind=engine)
-
-    # 2. Неблокирующий запуск фоновых задач
     bot_task = asyncio.create_task(run_bot())
     keep_alive_task = asyncio.create_task(keep_alive())
     digest_task = asyncio.create_task(daily_digest_scheduler())
 
-    yield  # Сервер моментально открывает $PORT и рапортует Готовность
+    yield
 
-    # 3. Мягкая остановка фоновых задач
     bot_task.cancel()
     keep_alive_task.cancel()
     digest_task.cancel()
