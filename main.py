@@ -38,14 +38,25 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
-
-# Инициализация бесплатного распознавателя речи
 recognizer = sr.Recognizer()
 
-# --- БЕСПЛАТНАЯ ФУНКЦИЯ РАСПОЗНАВАНИЯ РЕЧИ (БЕЗ OPENAI) ---
+# --- КУРСЫ ВАЛЮТ ДЛЯ КОНВЕРТАЦИИ ---
+RATES_TO_USD = {
+    "USD": 1.0,
+    "AMD": 0.00258, # ~388 AMD za 1 USD
+    "RUB": 0.011    # ~90 RUB za 1 USD
+}
+
+def convert_currency(amount: float, from_curr: str, to_curr: str) -> float:
+    if from_curr == to_curr:
+        return amount
+    # Переводим сначала в USD, затем в целевую валюту
+    amount_in_usd = amount * RATES_TO_USD.get(from_curr, 1.0)
+    target_rate = RATES_TO_USD.get(to_curr, 1.0)
+    return round(amount_in_usd / target_rate, 2)
+
 def recognize_speech_free(audio_bytes: bytes) -> str:
     try:
-        # Конвертируем входящее аудио из OGG/WEBM/ANY в WAV
         audio_stream = io.BytesIO(audio_bytes)
         sound = AudioSegment.from_file(audio_stream)
         
@@ -55,8 +66,6 @@ def recognize_speech_free(audio_bytes: bytes) -> str:
 
         with sr.AudioFile(wav_stream) as source:
             audio_data = recognizer.record(source)
-            
-            # 1. Пробуем распознать как армянский (hy-AM)
             try:
                 text_hy = recognizer.recognize_google(audio_data, language="hy-AM")
                 if text_hy and len(text_hy.strip()) > 0:
@@ -64,75 +73,108 @@ def recognize_speech_free(audio_bytes: bytes) -> str:
             except sr.UnknownValueError:
                 pass
             
-            # 2. Если не армянский — пробуем русский (ru-RU)
             try:
                 text_ru = recognizer.recognize_google(audio_data, language="ru-RU")
                 if text_ru and len(text_ru.strip()) > 0:
                     return text_ru
             except sr.UnknownValueError:
                 pass
-
     except Exception as e:
-        print(f"Error converting/recognizing audio: {e}")
-        
+        print(f"Error audio: {e}")
     return ""
 
 # --- SCHEMAS ---
-class UserAuth(BaseModel):
+class UserSettings(BaseModel):
     telegram_id: int
-    language: Optional[str] = "ru"
+    currency: str
 
 class RecordCreate(BaseModel):
     telegram_id: int
     title: str
-    category: Optional[str] = "task"
-    amount: Optional[float] = 0.0
 
 class ShortcutPayload(BaseModel):
     text: str
 
-# --- PARSER ---
+# --- УМНЫЙ ПАРСЕР С ЧИСЛИИТЕЛЬНЫМИ И ВАЛЮТАМИ ---
 def parse_and_save(telegram_id: int, text: str, db: Session):
     user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
     if not user:
-        user = models.User(telegram_id=telegram_id)
+        user = models.User(telegram_id=telegram_id, currency="AMD")
         db.add(user)
         db.commit()
 
+    base_currency = user.currency or "AMD"
     category = "task"
+    rec_type = "expense"
     amount = 0.0
+    detected_currency = None
     text_lower = text.lower()
 
-    num_words = {
-        "հիսուն": 50, "տաս": 10, "քսան": 20, "երեսուն": 30, "քառասուն": 40,
-        "հարյուր": 100, "հազար": 1000, "пятьдесят": 50, "сто": 100, "тысяча": 1000
-    }
+    # 1. Поиск валюты фразы
+    if any(k in text_lower for k in ["доллар", "dollar", "dolar", "$", "դոլար"]):
+        detected_currency = "USD"
+    elif any(k in text_lower for k in ["рубл", "руб", "rub", "рублей", "ռուբլի"]):
+        detected_currency = "RUB"
+    elif any(k in text_lower for k in ["драм", "dram", "֏", "դրամ"]):
+        detected_currency = "AMD"
+    else:
+        detected_currency = base_currency
 
-    numbers = re.findall(r'\d+', text)
+    # 2. Продвинутый парсинг числительных (включая составные)
+    # Ищем обычные числа ("50000", "50.000")
+    clean_text = text_lower.replace(".", "").replace(",", "")
+    numbers = re.findall(r'\d+', clean_text)
+    
     if numbers:
         amount = float(numbers[0])
+        # Проверка тысячных приставок ("50 тыс", "50 հազար")
+        if "тыс" in text_lower or "հազար" in text_lower or "k" in text_lower:
+            if amount < 1000:
+                amount *= 1000
     else:
-        for word, val in num_words.items():
-            if word in text_lower:
-                amount = float(val)
-                break
+        # Словарный парсинг армянских и русских чисел
+        words = text_lower.split()
+        multiplier = 1
+        base_val = 0
+        
+        dict_nums = {
+            "տաս": 10, "քսան": 20, "երեսուն": 30, "քառասուն": 40, "հիսուն": 50,
+            "վաթսուն": 60, "յոթանասուն": 70, "ութսուն": 80, "իննսուն": 90,
+            "հարյուր": 100, "десять": 10, "двадцать": 20, "тридцать": 30,
+            "сорок": 40, "пятьдесят": 50, "сто": 100
+        }
+        
+        for w in words:
+            if w in dict_nums:
+                base_val += dict_nums[w]
+            elif w in ["հազար", "тысяча", "тысяч"]:
+                multiplier = 1000
+                
+        if base_val > 0:
+            amount = float(base_val * multiplier)
 
-    finance_keywords = [
-        "руб", "$", "драм", "֏", "купил", "потратил", "цена", "стоил", "кофе", "кофե",
-        "dollar", "dolar", "դոլար", "դրամ", "ծախս", "գնեցի", "կոֆե", "սուրճ", "ստացա"
-    ]
+    # 3. Определение категории (Finance vs Task)
+    income_keywords = ["зарплат", "доход", "получил", "перевод", "ստացա", "եկամուտ", "прибыль"]
+    expense_keywords = ["руб", "$", "драм", "֏", "купил", "потратил", "цена", "кофе", "կոֆե", "ծախս", "գնեցի", "սուրճ", "инвестиц"]
 
-    if amount > 0 or any(k in text_lower for k in finance_keywords):
+    if any(k in text_lower for k in income_keywords):
         category = "finance"
-        if amount == 0.0:
-            amount = 1.0
+        rec_type = "income"
+    elif amount > 0 or any(k in text_lower for k in expense_keywords):
+        category = "finance"
+        rec_type = "expense"
+
+    # 4. Автоматический конвертер валют в базовую валюту профиля
+    if category == "finance" and amount > 0:
+        amount = convert_currency(amount, detected_currency, base_currency)
 
     record = models.Record(
         user_id=user.id,
         category=category,
+        type=rec_type,
         title=text,
         amount=amount,
-        currency="$"
+        currency=base_currency
     )
     db.add(record)
     db.commit()
@@ -147,11 +189,29 @@ async def read_index():
     if os.path.exists(index_file):
         with open(index_file, "r", encoding="utf-8") as f:
             return f.read()
-    return HTMLResponse(content="<h1>Ошибка: index.html не найден</h1>", status_code=404)
+    return HTMLResponse(content="<h1>Index file not found</h1>", status_code=404)
 
 @app.get("/ping")
 async def ping():
     return {"status": "alive"}
+
+@app.get("/api/user/{telegram_id}")
+def get_user_info(telegram_id: int, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
+    if not user:
+        user = models.User(telegram_id=telegram_id, currency="AMD")
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    return {"currency": user.currency, "language": user.language}
+
+@app.post("/api/user/settings")
+def update_user_settings(data: UserSettings, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.telegram_id == data.telegram_id).first()
+    if user:
+        user.currency = data.currency
+        db.commit()
+    return {"status": "ok", "currency": data.currency}
 
 @app.get("/api/records/{telegram_id}")
 def get_records(telegram_id: int, db: Session = Depends(get_db)):
@@ -168,19 +228,20 @@ def create_record(data: RecordCreate, db: Session = Depends(get_db)):
         "id": record.id,
         "title": record.title,
         "category": record.category,
-        "amount": record.amount
+        "type": record.type,
+        "amount": record.amount,
+        "currency": record.currency
     }
 
 @app.delete("/api/records/{record_id}")
 def delete_record(record_id: int, db: Session = Depends(get_db)):
     record = db.query(models.Record).filter(models.Record.id == record_id).first()
     if not record:
-        raise HTTPException(status_code=404, detail="Запись не найдена")
+        raise HTTPException(status_code=404, detail="Not found")
     db.delete(record)
     db.commit()
     return {"status": "deleted"}
 
-# Прием и бесплатная расшифровка голосовых записей с веб-микрофона
 @app.post("/api/voice")
 async def handle_web_voice(
     telegram_id: int = Form(...),
@@ -189,7 +250,6 @@ async def handle_web_voice(
 ):
     audio_bytes = await file.read()
     recognized_text = recognize_speech_free(audio_bytes)
-    
     if not recognized_text:
         recognized_text = "Голосовая запись"
 
@@ -199,21 +259,24 @@ async def handle_web_voice(
         "id": rec.id, 
         "title": rec.title, 
         "category": rec.category,
-        "amount": rec.amount
+        "type": rec.type,
+        "amount": rec.amount,
+        "currency": rec.currency
     }
 
-# Вход для Быстрых команд iOS (Siri)
 @app.post("/api/shortcut")
 def handle_shortcut(id: int, payload: ShortcutPayload, db: Session = Depends(get_db)):
     record = parse_and_save(id, payload.text, db)
     return {
         "status": "ok",
         "category": record.category,
+        "type": record.type,
         "amount": record.amount,
+        "currency": record.currency,
         "text": record.title
     }
 
-# --- БОТ ХЭНДЛЕРЫ ---
+# --- TELEGRAM BOT ---
 
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
@@ -222,34 +285,20 @@ async def cmd_start(message: types.Message):
     ])
     await message.answer(
         f"Привет, {message.from_user.first_name}! 👋\n\n"
-        f"🎙 Отправляй мне текстовые или голосовые сообщения прямо сюда!",
+        f"🎙 Отправляй текстовые или голосовые сообщения прямо сюда!",
         reply_markup=markup
-    )
-
-@dp.message(Command("shortcut"))
-async def cmd_shortcut(message: types.Message):
-    user_id = message.from_user.id
-    user_api_url = f"{WEBAPP_URL}/api/shortcut?id={user_id}"
-
-    await message.answer(
-        f"🎙 **Голосовой ввод через Siri на iPhone**\n\n"
-        f"Ваша ссылка для Быстрой команды iOS:\n\n"
-        f"`{user_api_url}`",
-        parse_mode="Markdown"
     )
 
 @dp.message(F.text)
 async def handle_text_message(message: types.Message):
     db = next(get_db())
     rec = parse_and_save(message.from_user.id, message.text, db)
-    emoji = "💸" if rec.category == "finance" else "✅"
-    await message.answer(f"{emoji} Записано в **{rec.category.upper()}**: {rec.title}", parse_mode="Markdown")
+    emoji = "📈" if rec.type == "income" else ("💸" if rec.category == "finance" else "✅")
+    await message.answer(f"{emoji} Записано: **{rec.title}** ({rec.amount} {rec.currency})", parse_mode="Markdown")
 
-# Бесплатная расшифровка голосовых сообщений из чата Telegram
 @dp.message(F.voice)
 async def handle_voice_message(message: types.Message):
     db = next(get_db())
-    
     file_info = await bot.get_file(message.voice.file_id)
     file_bytes = await bot.download_file(file_info.file_path)
     
@@ -258,21 +307,18 @@ async def handle_voice_message(message: types.Message):
         recognized_text = "Голосовая запись"
 
     rec = parse_and_save(message.from_user.id, recognized_text, db)
-    emoji = "💸" if rec.category == "finance" else "✅"
-    await message.answer(f"🎙 {emoji} **Распознано:** «{rec.title}»\nЗаписано в **{rec.category.upper()}**!", parse_mode="Markdown")
+    emoji = "📈" if rec.type == "income" else ("💸" if rec.category == "finance" else "✅")
+    await message.answer(f"🎙 {emoji} **Распознано:** «{rec.title}»\nСумма: **{rec.amount} {rec.currency}**", parse_mode="Markdown")
 
-# --- KEEP ALIVE ---
 async def keep_alive():
     await asyncio.sleep(30)
     ping_url = f"{WEBAPP_URL}/ping"
-    
     async with httpx.AsyncClient() as client:
         while True:
             try:
-                response = await client.get(ping_url)
-                print(f"Self-ping successful: status {response.status_code}")
-            except Exception as e:
-                print(f"Self-ping failed: {e}")
+                await client.get(ping_url)
+            except Exception:
+                pass
             await asyncio.sleep(600)
 
 @app.on_event("startup")
