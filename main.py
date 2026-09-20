@@ -22,7 +22,7 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton
 
-# --- АВТО-МИГРАЦИЯ БД ---
+# --- АВТО-МИГРАЦИЯ СТРУКТУРЫ БД ---
 try:
     with engine.connect() as conn:
         conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS currency VARCHAR DEFAULT 'AMD';"))
@@ -38,7 +38,7 @@ Base.metadata.create_all(bind=engine)
 BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 WEBAPP_URL = os.getenv("WEBAPP_URL", "https://aura-planner-ejyi.onrender.com")
 
-app = FastAPI(title="Aura OS Planner Pro API")
+app = FastAPI(title="Aura OS Gold API")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
@@ -104,28 +104,7 @@ class RecordCreate(BaseModel):
 class ShortcutPayload(BaseModel):
     text: str
 
-# --- СЛОВАРЬ ТРИГГЕРОВ С РАСШИРЕННЫМ АРМЯНСКИМ ЯЗЫКОМ ---
-INCOME_TRIGGERS = [
-    # RU
-    "зарплат", "получк", "аванс", "преми", "калым", "доход", "получил", "перевод", "прибыль", 
-    "пополнен", "продаж", "дивиденд", "кэшбэк", "кешбек", "стейкинг", "крипт", "процент", "подарок", "фриланс",
-    # HY (Расширенный армянский)
-    "ստացա", "եկամուտ", "աշխատավարձ", "փոխանցում", "նվեր", "վաճառք", "շահույթ", "կանխավճար", "մուտք", "ավելացավ", "եկամուտներ",
-    # EN
-    "salary", "paycheck", "income", "bonus", "profit", "gift", "crypto", "cashback", "dividend", "sale", "freelance"
-]
-
-EXPENSE_TRIGGERS = [
-    # RU
-    "руб", "$", "драм", "֏", "купил", "потратил", "цена", "стоил", "кофе", "заправк", "бензин", "ремонт", "оплат",
-    "еда", "ужин", "обед", "завтрак", "ресторан", "кафе", "продукты", "такси", "парикмахер", "аренда",
-    "коммунал", "связь", "интернет", "аптек", "врач", "bmw", "запчаст", "масло", "сервис", "мойк",
-    # HY
-    "ծախս", "գնեցի", "սուրճ", "կոֆե", "ինվեստ", "բենզին", "ավտո", "տաքսի", "վարձ", "ուտելիք", "հաց", "դեղ", "սպասարկում",
-    # EN
-    "bought", "paid", "spent", "coffee", "food", "taxi", "rent", "bmw", "parts", "auto", "gas", "petrol", "dinner"
-]
-
+# --- МОЩНЫЙ МУЛЬТИЯЗЫЧНЫЙ ПАРСЕР ЧИСЕЛ И ВАЛЮТ ---
 def parse_and_save(telegram_id: int, text: str, db: Session):
     user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
     if not user:
@@ -140,7 +119,7 @@ def parse_and_save(telegram_id: int, text: str, db: Session):
     detected_currency = None
     text_lower = text.lower()
 
-    # 1. Детекция валюты
+    # 1. Поиск валюты
     if any(k in text_lower for k in ["доллар", "dollar", "dolar", "$", "դոլար"]):
         detected_currency = "USD"
     elif any(k in text_lower for k in ["рубл", "руб", "rub", "ռուբլի"]):
@@ -150,42 +129,85 @@ def parse_and_save(telegram_id: int, text: str, db: Session):
     else:
         detected_currency = base_currency
 
-    # 2. Точный парсинг чисел (29.000 / 29 000 / 29000 / 29 тыс)
+    # 2. Выделение чисел (цифры + пропись)
     normalized_text = re.sub(r'(\d+)[\.,\s](\d{3})\b', r'\1\2', text_lower)
     numbers = re.findall(r'\d+(?:\.\d+)?', normalized_text)
     
     if numbers:
         amount = float(numbers[0])
-        if any(k in text_lower for k in ["тыс", "հազար", "k"]):
+        if any(k in text_lower for k in ["млн", "миллион", "միլիոն", "million"]):
+            if amount < 1000000:
+                amount *= 1000000
+        elif any(k in text_lower for k in ["тыс", "հազար", "k", "thousand"]):
             if amount < 1000:
                 amount *= 1000
     else:
-        words = text_lower.split()
-        multiplier = 1
-        base_val = 0
-        dict_nums = {
-            "տաս": 10, "քսան": 20, "երեսուն": 30, "քառասուն": 40, "հիսուն": 50,
-            "վաթսուն": 60, "յոթանասուն": 70, "ութսուն": 80, "իննսուն": 90,
-            "հարյուր": 100, "десять": 10, "двадцать": 20, "тридцать": 30,
-            "сорок": 40, "пятьдесят": 50, "сто": 100
+        # Парсинг слов-чисел (Armenian, Russian, English)
+        units = {
+            "մեկ": 1, "մեկը": 1, "երկու": 2, "երեք": 3, "չորս": 4, "հինգ": 5,
+            "վեց": 6, "յոթ": 7, "ութ": 8, "ինը": 9, "ինն": 9,
+            "один": 1, "одна": 1, "два": 2, "две": 2, "три": 3, "четыре": 4,
+            "пять": 5, "шесть": 6, "семь": 7, "восемь": 8, "девять": 9, "one": 1, "two": 2
         }
-        for w in words:
-            if w in dict_nums:
-                base_val += dict_nums[w]
-            elif w in ["հազար", "тысяча", "тысяч"]:
-                multiplier = 1000
-        if base_val > 0:
-            amount = float(base_val * multiplier)
+        tens = {
+            "տաս": 10, "տասն": 10, "քսան": 20, "երեսուն": 30, "քառասուն": 40, "հիսուն": 50,
+            "վաթսուն": 60, "յոթանասուն": 70, "ութսուն": 80, "իննսուն": 90,
+            "десять": 10, "двадцать": 20, "тридцать": 30, "сорок": 40, "пятьдесят": 50,
+            "шестьдесят": 60, "семьдесят": 70, "восемьдесят": 80, "девяносто": 90
+        }
+        hundreds = {
+            "հարյուր": 100, "сто": 100, "двести": 200, "триста": 300, "четыреста": 400,
+            "пятьсот": 500, "шестьсот": 600, "семьсот": 700, "восемьсот": 800, "девятьсот": 900
+        }
 
-    # 3. Категоризация
-    if any(k in text_lower for k in INCOME_TRIGGERS):
+        words = re.findall(r'\w+', text_lower)
+        total = 0.0
+        curr_val = 0.0
+
+        for w in words:
+            if w in units:
+                curr_val += units[w]
+            elif w in tens:
+                curr_val += tens[w]
+            elif w in hundreds:
+                curr_val += hundreds[w]
+            elif w in ["հազար", "тысяча", "тысячи", "тысяч", "тыс"]:
+                if curr_val == 0:
+                    curr_val = 1
+                total += curr_val * 1000
+                curr_val = 0
+            elif w in ["միլիոն", "միլիոնն", "մլն", "миллион", "миллиона", "миллионов", "млн", "million"]:
+                if curr_val == 0:
+                    curr_val = 1
+                total += curr_val * 1000000
+                curr_val = 0
+
+        total += curr_val
+        amount = float(total)
+
+    # 3. Триггеры категорий
+    income_triggers = [
+        "зарплат", "получк", "аванс", "преми", "калым", "доход", "получил", "перевод", "прибыль", 
+        "пополнен", "продаж", "дивиденд", "кэшбэк", "кешбек", "стейкинг", "крипт", "процент", "подарок", "фриланс",
+        "ստացա", "եկամուտ", "աշխատավարձ", "փոխանցում", "նվեր", "վաճառք", "շահույթ", "կանխավճար", "մուտք", "ավելացավ", "եկամուտներ",
+        "salary", "paycheck", "income", "bonus", "profit", "gift", "crypto", "cashback", "dividend", "sale", "freelance"
+    ]
+    expense_triggers = [
+        "руб", "$", "драм", "֏", "купил", "потратил", "цена", "стоил", "кофе", "заправк", "бензин", "ремонт", "оплат",
+        "еда", "ужин", "обед", "завтрак", "ресторан", "кафе", "продукты", "такси", "парикмахер", "аренда",
+        "коммунал", "связь", "интернет", "аптек", "врач", "bmw", "запчаст", "масло", "сервис", "мойк",
+        "ծախս", "գնեցի", "սուրճ", "կոֆե", "ինվեստ", "բենզին", "ավտո", "տաքսի", "վարձ", "ուտելիք", "հաց", "դեղ", "սպասարկում",
+        "bought", "paid", "spent", "coffee", "food", "taxi", "rent", "bmw", "parts", "auto", "gas", "petrol", "dinner"
+    ]
+
+    if any(k in text_lower for k in income_triggers):
         category = "finance"
         rec_type = "income"
-    elif amount > 0 or any(k in text_lower for k in EXPENSE_TRIGGERS):
+    elif amount > 0 or any(k in text_lower for k in expense_triggers):
         category = "finance"
         rec_type = "expense"
 
-    # 4. Конвертация валют
+    # 4. Конвертация
     if category == "finance" and amount > 0:
         amount = convert_currency(amount, detected_currency, base_currency)
 
@@ -302,11 +324,11 @@ def handle_shortcut(id: int, payload: ShortcutPayload, db: Session = Depends(get
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
     markup = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🚀 Открыть Aura OS Pro", web_app=WebAppInfo(url=WEBAPP_URL))]
+        [InlineKeyboardButton(text="👑 Открыть Aura OS Gold", web_app=WebAppInfo(url=WEBAPP_URL))]
     ])
     await message.answer(
         f"Привет, {message.from_user.first_name}! 👋\n\n"
-        f"🎙 Напиши или надиктуй задачу/доход/расход — я всё разложу по полочкам!",
+        f"🎙 Напиши или надиктуй задачу/доход/расход!",
         reply_markup=markup
     )
 
