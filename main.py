@@ -130,6 +130,11 @@ class AdminBroadcast(BaseModel):
     admin_id: int
     message_text: str
 
+class AdminDirectMessage(BaseModel):
+    admin_id: int
+    target: str
+    message_text: str
+
 # --- ПАРСЕР И РЕГИСТРАЦИЯ ЮЗЕРА ---
 def parse_and_save(telegram_id: int, text: str, db: Session, first_name: str = None, username: str = None):
     user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
@@ -476,6 +481,33 @@ async def admin_broadcast(data: AdminBroadcast, db: Session = Depends(get_db)):
             db.commit()
 
     return {"status": "ok", "success": success_count, "failed": fail_count}
+
+@app.post("/api/admin/direct-message")
+async def admin_direct_message(data: AdminDirectMessage, db: Session = Depends(get_db)):
+    if data.admin_id != ADMIN_TELEGRAM_ID:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    
+    target_clean = data.target.strip()
+    if not target_clean or not data.message_text.strip():
+        raise HTTPException(status_code=400, detail="Укажите адресата и текст сообщения")
+
+    user = None
+    if target_clean.isdigit():
+        user = db.query(models.User).filter(models.User.telegram_id == int(target_clean)).first()
+    else:
+        uname = target_clean.lstrip('@')
+        user = db.query(models.User).filter(models.User.username.ilike(uname)).first()
+
+    if not user:
+        raise HTTPException(status_code=404, detail="Пользователь не найден в базе")
+
+    try:
+        await bot.send_message(user.telegram_id, data.message_text, parse_mode="Markdown")
+        return {"status": "ok", "recipient": user.first_name or user.username or str(user.telegram_id)}
+    except Exception as e:
+        user.bot_active = False
+        db.commit()
+        raise HTTPException(status_code=400, detail=f"Ошибка отправки: {e}")
 
 # --- TELEGRAM BOT И ДЕТЕКЦИЯ БЛОКИРОВКИ ЮЗЕРОМ ---
 
