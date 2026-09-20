@@ -36,7 +36,7 @@ dp = Dispatcher()
 recognizer = sr.Recognizer()
 
 
-# --- СИНХРОННЫЕ МИГРАЦИИ БД (ВЫНЕСЕНЫ ИЗ ГЛАВНОГО ПОТОКА) ---
+# --- СИНХРОННЫЕ МИГРАЦИИ БД ---
 def run_db_migrations():
     try:
         with engine.connect() as conn:
@@ -121,15 +121,13 @@ async def daily_digest_scheduler():
 # --- ЖИЗНЕННЫЙ ЦИКЛ ПРИЛОЖЕНИЯ (LIFESPAN) ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Выполняем синхронную работу с БД в отдельном потоке (to_thread)
-    # Это предотвращает заморозку Event Loop при запуске Uvicorn
-    await asyncio.to_thread(run_db_migrations)
-
+    # ВСЕ задачи запускаем асинхронно в фоне без await, чтобы дойти до yield мгновенно!
+    asyncio.create_task(asyncio.to_thread(run_db_migrations))
     bot_task = asyncio.create_task(run_bot())
     keep_alive_task = asyncio.create_task(keep_alive())
     digest_task = asyncio.create_task(daily_digest_scheduler())
 
-    yield
+    yield  # В этот же момент Uvicorn сразу открывает порт $PORT для Render!
 
     bot_task.cancel()
     keep_alive_task.cancel()
