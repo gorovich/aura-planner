@@ -711,5 +711,3 @@ async def on_startup():
     try:
         with engine.connect() as conn:
             conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS currency VARCHAR DEFAULT 'AMD';"))
-            ...
-            ... (УДАЛИ ВСЁ ДО САМОГО КОНЦА ФАЙЛА)
