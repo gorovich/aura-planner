@@ -22,7 +22,7 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton
 
-# --- АВТО-МИГРАЦИЯ СТРУКТУРЫ БД ---
+# --- АВТО-МИГРАЦИЯ БД ---
 try:
     with engine.connect() as conn:
         conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS currency VARCHAR DEFAULT 'AMD';"))
@@ -38,7 +38,7 @@ Base.metadata.create_all(bind=engine)
 BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 WEBAPP_URL = os.getenv("WEBAPP_URL", "https://aura-planner-ejyi.onrender.com")
 
-app = FastAPI(title="Aura OS Planner API")
+app = FastAPI(title="Aura OS Planner Pro API")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
@@ -52,11 +52,11 @@ bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 recognizer = sr.Recognizer()
 
-# --- КУРСЫ ВАЛЮТ ДЛЯ КОНВЕРТАЦИИ ---
+# --- КУРСЫ ВАЛЮТ (AMD / USD / RUB) ---
 RATES_TO_USD = {
     "USD": 1.0,
-    "AMD": 0.00258,  # ~388 AMD за 1 USD
-    "RUB": 0.011     # ~90 RUB за 1 USD
+    "AMD": 0.00258,  # ~388 AMD za 1 USD
+    "RUB": 0.011     # ~90 RUB za 1 USD
 }
 
 def convert_currency(amount: float, from_curr: str, to_curr: str) -> float:
@@ -66,20 +66,16 @@ def convert_currency(amount: float, from_curr: str, to_curr: str) -> float:
     target_rate = RATES_TO_USD.get(to_curr, 1.0)
     return round(amount_in_usd / target_rate, 2)
 
-# --- БЕСПЛАТНОЕ РАСПОЗНАВАНИЕ РЕЧИ (HY / RU) ---
 def recognize_speech_free(audio_bytes: bytes) -> str:
     try:
         audio_stream = io.BytesIO(audio_bytes)
         sound = AudioSegment.from_file(audio_stream)
-        
         wav_stream = io.BytesIO()
         sound.export(wav_stream, format="wav")
         wav_stream.seek(0)
 
         with sr.AudioFile(wav_stream) as source:
             audio_data = recognizer.record(source)
-            
-            # 1. Пробуем армянский
             try:
                 text_hy = recognizer.recognize_google(audio_data, language="hy-AM")
                 if text_hy and len(text_hy.strip()) > 0:
@@ -87,7 +83,6 @@ def recognize_speech_free(audio_bytes: bytes) -> str:
             except sr.UnknownValueError:
                 pass
             
-            # 2. Пробуем русский
             try:
                 text_ru = recognizer.recognize_google(audio_data, language="ru-RU")
                 if text_ru and len(text_ru.strip()) > 0:
@@ -98,7 +93,6 @@ def recognize_speech_free(audio_bytes: bytes) -> str:
         print(f"Audio processing error: {e}")
     return ""
 
-# --- SCHEMAS ---
 class UserSettings(BaseModel):
     telegram_id: int
     currency: str
@@ -110,7 +104,28 @@ class RecordCreate(BaseModel):
 class ShortcutPayload(BaseModel):
     text: str
 
-# --- УМНЫЙ ПАРСЕР ТЕКСТА ---
+# --- ОГРОМНЫЙ СЛОВАРЬ ТРИГГЕРОВ (RU / HY / EN) ---
+INCOME_TRIGGERS = [
+    # RU
+    "зарплат", "получк", "аванс", "преми", "калым", "доход", "получил", "перевод", "прибыль", 
+    "пополнен", "продаж", "дивиденд", "кэшбэк", "кешбек", "стейкинг", "крипт", "процент", "подарок", "наследст", "фриланс",
+    # HY
+    "ստացա", "եկամուտ", "աշխատավարձ", "փոխանցում", "նվեր", "վաճառք", "շահույթ", "կանխավճար",
+    # EN
+    "salary", "paycheck", "income", "bonus", "profit", "gift", "crypto", "cashback", "dividend", "sale", "freelance"
+]
+
+EXPENSE_TRIGGERS = [
+    # RU
+    "руб", "$", "драм", "֏", "купил", "потратил", "цена", "стоил", "кофе", "заправк", "бензин", "ремонт", "оплат",
+    "еда", "ужин", "обед", "завтрак", "ресторан", "кафе", "продукты", "такси", "парикмахер", "стрижк", "аренда",
+    "коммунал", "связь", "интернет", "аптек", "врач", "bmw", "запчаст", "масло", "сервис", "мойк",
+    # HY
+    "ծախս", "գնեցի", "սուրճ", "կոֆե", "ինվեստ", "բենզին", "ավտո", "տաքսի", "վարձ", "ուտելիք", "հաց", "դեղ", "սպասարկում",
+    # EN
+    "bought", "paid", "spent", "coffee", "food", "taxi", "rent", "bmw", "parts", "auto", "gas", "petrol", "dinner"
+]
+
 def parse_and_save(telegram_id: int, text: str, db: Session):
     user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
     if not user:
@@ -125,59 +140,56 @@ def parse_and_save(telegram_id: int, text: str, db: Session):
     detected_currency = None
     text_lower = text.lower()
 
-    # 1. Определение валюты из фразы
+    # 1. Определение валюты
     if any(k in text_lower for k in ["доллар", "dollar", "dolar", "$", "դոլար"]):
         detected_currency = "USD"
-    elif any(k in text_lower for k in ["рубл", "руб", "rub", "рублей", "ռուբլի"]):
+    elif any(k in text_lower for k in ["рубл", "руб", "rub", "ռուբլի"]):
         detected_currency = "RUB"
     elif any(k in text_lower for k in ["драм", "dram", "֏", "դրամ"]):
         detected_currency = "AMD"
     else:
         detected_currency = base_currency
 
-    # 2. Числовой парсинг (включая "50000" и "50 тыс" / "50 հազար")
-    clean_text = text_lower.replace(".", "").replace(",", "")
-    numbers = re.findall(r'\d+', clean_text)
+    # 2. Улучшенный парсинг чисел (29.000 / 29,000 / 29000 / 29 тыс)
+    # Нормализуем форматы записи 29.000 или 29 000 в 29000
+    normalized_text = re.sub(r'(\d+)[\.,\s](\d{3})\b', r'\1\2', text_lower)
+    
+    numbers = re.findall(r'\d+(?:\.\d+)?', normalized_text)
     
     if numbers:
         amount = float(numbers[0])
-        if "тыс" in text_lower or "հազար" in text_lower or "k" in text_lower:
+        # Проверка тысячных приставок ("29 тыс", "29k", "29 հազար")
+        if any(k in text_lower for k in ["тыс", "հազար", "k"]):
             if amount < 1000:
                 amount *= 1000
     else:
-        # Словарный парсинг составных чисел (например: հիսուն հազար)
+        # Словарный парсинг прописью
         words = text_lower.split()
         multiplier = 1
         base_val = 0
-        
         dict_nums = {
             "տաս": 10, "քսան": 20, "երեսուն": 30, "քառասուն": 40, "հիսուն": 50,
             "վաթսուն": 60, "յոթանասուն": 70, "ութսուն": 80, "իննսուն": 90,
             "հարյուր": 100, "десять": 10, "двадцать": 20, "тридцать": 30,
             "сорок": 40, "пятьдесят": 50, "сто": 100
         }
-        
         for w in words:
             if w in dict_nums:
                 base_val += dict_nums[w]
             elif w in ["հազար", "тысяча", "тысяч"]:
                 multiplier = 1000
-                
         if base_val > 0:
             amount = float(base_val * multiplier)
 
-    # 3. Определение категории и типа (Income vs Expense vs Task)
-    income_keywords = ["зарплат", "доход", "получил", "перевод", "ստացա", "եկամուտ", "прибыль"]
-    expense_keywords = ["руб", "$", "драм", "֏", "купил", "потратил", "цена", "кофе", "կոֆե", "ծախս", "գնեցի", "սուրճ", "инвестиц"]
-
-    if any(k in text_lower for k in income_keywords):
+    # 3. Категоризация по словарю
+    if any(k in text_lower for k in INCOME_TRIGGERS):
         category = "finance"
         rec_type = "income"
-    elif amount > 0 or any(k in text_lower for k in expense_keywords):
+    elif amount > 0 or any(k in text_lower for k in EXPENSE_TRIGGERS):
         category = "finance"
         rec_type = "expense"
 
-    # 4. Конвертация валюты в основную валюту аккаунта
+    # 4. Конвертация валют в основную валюту
     if category == "finance" and amount > 0:
         amount = convert_currency(amount, detected_currency, base_currency)
 
@@ -194,7 +206,7 @@ def parse_and_save(telegram_id: int, text: str, db: Session):
     db.refresh(record)
     return record
 
-# --- REST API МАРШРУТЫ ---
+# --- REST API ---
 
 @app.get("/", response_class=HTMLResponse)
 async def read_index():
@@ -294,11 +306,11 @@ def handle_shortcut(id: int, payload: ShortcutPayload, db: Session = Depends(get
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
     markup = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🚀 Открыть Aura OS Planner", web_app=WebAppInfo(url=WEBAPP_URL))]
+        [InlineKeyboardButton(text="🚀 Открыть Aura OS Pro", web_app=WebAppInfo(url=WEBAPP_URL))]
     ])
     await message.answer(
         f"Привет, {message.from_user.first_name}! 👋\n\n"
-        f"🎙 Отправляй текстовые или голосовые сообщения прямо сюда!",
+        f"🎙 Напиши или надиктуй задачу/доход/расход — я всё разложу по полочкам!",
         reply_markup=markup
     )
 
@@ -307,8 +319,7 @@ async def handle_text_message(message: types.Message):
     db = next(get_db())
     rec = parse_and_save(message.from_user.id, message.text, db)
     emoji = "📈" if rec.type == "income" else ("💸" if rec.category == "finance" else "✅")
-    fmt_amount = f"{rec.amount:.2f}"
-    await message.answer(f"{emoji} Записано: **{rec.title}** ({fmt_amount} {rec.currency})", parse_mode="Markdown")
+    await message.answer(f"{emoji} Записано: **{rec.title}** ({rec.amount:.2f} {rec.currency})", parse_mode="Markdown")
 
 @dp.message(F.voice)
 async def handle_voice_message(message: types.Message):
@@ -322,10 +333,8 @@ async def handle_voice_message(message: types.Message):
 
     rec = parse_and_save(message.from_user.id, recognized_text, db)
     emoji = "📈" if rec.type == "income" else ("💸" if rec.category == "finance" else "✅")
-    fmt_amount = f"{rec.amount:.2f}"
-    await message.answer(f"🎙 {emoji} **Распознано:** «{rec.title}»\nСумма: **{fmt_amount} {rec.currency}**", parse_mode="Markdown")
+    await message.answer(f"🎙 {emoji} **Распознано:** «{rec.title}»\nСумма: **{rec.amount:.2f} {rec.currency}**", parse_mode="Markdown")
 
-# --- KEEP ALIVE ---
 async def keep_alive():
     await asyncio.sleep(30)
     ping_url = f"{WEBAPP_URL}/ping"
