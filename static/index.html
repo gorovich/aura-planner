@@ -25,7 +25,7 @@
         }
 
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif; -webkit-tap-highlight-color: transparent; }
-        body { background-color: var(--bg-black); color: var(--text-main); padding-bottom: 95px; min-height: 100vh; overflow-x: hidden; }
+        body { background-color: var(--bg-black); color: var(--text-main); padding-bottom: 135px; min-height: 100vh; overflow-x: hidden; }
         .app-container { max-width: 480px; margin: 0 auto; padding: 16px; }
 
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
@@ -70,6 +70,24 @@
         .delete-btn { background: transparent; border: none; color: var(--text-sub); cursor: pointer; padding: 6px; transition: color 0.2s; }
         .delete-btn:hover { color: var(--ruby-rose); }
 
+        /* Quick Chips Bar */
+        .chips-scroll { 
+            position: fixed; bottom: 128px; left: 50%; transform: translateX(-50%); 
+            width: calc(100% - 32px); max-width: 448px; 
+            display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; 
+            scrollbar-width: none; z-index: 100; 
+        }
+        .chips-scroll::-webkit-scrollbar { display: none; }
+        .chip-btn { 
+            background: rgba(22, 19, 14, 0.92); border: 1px solid var(--card-border); 
+            color: var(--gold-light); font-size: 0.75rem; font-weight: 600; 
+            padding: 6px 12px; border-radius: 20px; white-space: nowrap; 
+            cursor: pointer; backdrop-filter: blur(12px); box-shadow: 0 4px 12px rgba(0,0,0,0.4); 
+            transition: all 0.2s; 
+        }
+        .chip-btn:active { transform: scale(0.94); background: var(--gold-primary); color: #000; }
+
+        /* Floating Input Bar */
         .floating-bar { 
             position: fixed; bottom: 75px; left: 50%; transform: translateX(-50%); 
             width: calc(100% - 32px); max-width: 448px; 
@@ -96,7 +114,6 @@
 <body>
 
     <div class="app-container">
-        <!-- Header -->
         <div class="header">
             <div class="user-badge">
                 <div class="avatar" id="uAvatar">A</div>
@@ -108,7 +125,6 @@
             <i class="fa-solid fa-sliders" style="color: var(--gold-primary); font-size: 1.1rem; cursor: pointer;" onclick="switchTab('settings', document.querySelectorAll('.nav-tab')[3])"></i>
         </div>
 
-        <!-- VIEW 1: DIGEST -->
         <div id="view-digest" class="view-section active">
             <div class="glass-card">
                 <div class="card-label" id="lblNetBalance">Чистый Баланс</div>
@@ -128,13 +144,11 @@
             <div id="digestList"></div>
         </div>
 
-        <!-- VIEW 2: TASKS -->
         <div id="view-tasks" class="view-section">
             <h3 style="margin-bottom: 14px; font-weight: 800; color: var(--gold-light);" id="titleTasks">Задачи и дела</h3>
             <div id="tasksList"></div>
         </div>
 
-        <!-- VIEW 3: FINANCE -->
         <div id="view-finance" class="view-section">
             <div class="subtabs-container">
                 <button class="subtab-btn active exp" id="btnSubExp" onclick="switchFinSubtab('expense')">
@@ -147,7 +161,6 @@
             <div id="financeItemsList"></div>
         </div>
 
-        <!-- VIEW 4: SETTINGS -->
         <div id="view-settings" class="view-section">
             <h3 style="margin-bottom: 14px; font-weight: 800; color: var(--gold-light);" id="titleSettings">Настройки аккаунта</h3>
             
@@ -173,6 +186,14 @@
         </div>
     </div>
 
+    <!-- Quick Chips Template Ribbon -->
+    <div class="chips-scroll">
+        <button class="chip-btn" onclick="sendQuickChip('Кофе 1500 драмов')">☕️ Кофе 1.5k ֏</button>
+        <button class="chip-btn" onclick="sendQuickChip('Заправка BMW 15000 драмов')">⛽️ Бензин 15k ֏</button>
+        <button class="chip-btn" onclick="sendQuickChip('Обед 4000 драмов')">🍔 Обед 4k ֏</button>
+        <button class="chip-btn" onclick="sendQuickChip('Продукты 10000 драмов')">🛒 Продукты 10k ֏</button>
+    </div>
+
     <!-- Floating Bar -->
     <div class="floating-bar">
         <input type="text" id="smartInput" placeholder="Напишите или надиктуйте..." onkeypress="if(event.key==='Enter') sendInput()">
@@ -180,7 +201,6 @@
         <button class="send-btn" onclick="sendInput()"><i class="fa-solid fa-arrow-up"></i></button>
     </div>
 
-    <!-- Bottom Nav -->
     <div class="bottom-nav">
         <button class="nav-tab active" onclick="switchTab('digest', this)"><i class="fa-solid fa-chart-pie"></i><span id="navDigest">Обзор</span></button>
         <button class="nav-tab" onclick="switchTab('tasks', this)"><i class="fa-solid fa-list-check"></i><span id="navTasks">Задачи</span></button>
@@ -200,15 +220,10 @@
 
         const i18n = {
             ru: {
-                netBalance: "Чистый Баланс",
-                income: "Доходы",
-                expense: "Расходы",
-                recentActivity: "Последняя активность",
-                titleTasks: "Задачи и дела",
-                titleSettings: "Настройки аккаунта",
-                appLang: "Язык приложения",
-                appLangSub: "Выберите язык интерфейса",
-                baseCurr: "Валюта аккаунта",
+                netBalance: "Чистый Баланс", income: "Доходы", expense: "Расходы",
+                recentActivity: "Последняя активность", titleTasks: "Задачи и дела",
+                titleSettings: "Настройки аккаунта", appLang: "Язык приложения",
+                appLangSub: "Выберите язык интерфейса", baseCurr: "Валюта аккаунта",
                 baseCurrSub: "Автоматическая конвертация всех операций",
                 inputPlaceholder: "Напишите или надиктуйте...",
                 navDigest: "Обзор", navTasks: "Задачи", navFinance: "Финансы", navSettings: "Настройки",
@@ -217,15 +232,10 @@
                 tagTask: "ЗАДАЧА", tagIncome: "ДОХОД", tagExpense: "РАСХОД"
             },
             hy: {
-                netBalance: "Մաքուր Մնացորդ",
-                income: "Եկամուտներ",
-                expense: "Ծախսեր",
-                recentActivity: "Վերջին ակտիվությունը",
-                titleTasks: "Առաջադրանքներ",
-                titleSettings: "Հաշվի կարգավորումներ",
-                appLang: "Հավելվածի լեզուն",
-                appLangSub: "Ընտրեք ինտերֆեյսի լեզուն",
-                baseCurr: "Հիմնական արժույթը",
+                netBalance: "Մաքուր Մնացորդ", income: "Եկամուտներ", expense: "Ծախսեր",
+                recentActivity: "Վերջին ակտիվությունը", titleTasks: "Առաջադրանքներ",
+                titleSettings: "Հաշվի կարգավորումներ", appLang: "Հավելվածի լեզուն",
+                appLangSub: "Ընտրեք ինտերֆեյսի լեզուն", baseCurr: "Հիմնական արժույթը",
                 baseCurrSub: "Գործարքների ավտոմատ փոխարկում",
                 inputPlaceholder: "Գրեք կամ ձայնագրեք...",
                 navDigest: "Տեսք", navTasks: "Գործեր", navFinance: "Ֆինանսներ", navSettings: "Կարգավորումներ",
@@ -234,15 +244,10 @@
                 tagTask: "ԳՈՐԾ", tagIncome: "ԵԿԱՄՈՒՏ", tagExpense: "ԾԱԽՍ"
             },
             en: {
-                netBalance: "Net Balance",
-                income: "Income",
-                expense: "Expenses",
-                recentActivity: "Recent Activity",
-                titleTasks: "Tasks & To-Dos",
-                titleSettings: "Account Settings",
-                appLang: "App Language",
-                appLangSub: "Choose interface language",
-                baseCurr: "Account Currency",
+                netBalance: "Net Balance", income: "Income", expense: "Expenses",
+                recentActivity: "Recent Activity", titleTasks: "Tasks & To-Dos",
+                titleSettings: "Account Settings", appLang: "App Language",
+                appLangSub: "Choose interface language", baseCurr: "Account Currency",
                 baseCurrSub: "Auto-convert all transactions",
                 inputPlaceholder: "Type or speak...",
                 navDigest: "Overview", navTasks: "Tasks", navFinance: "Finance", navSettings: "Settings",
@@ -330,6 +335,17 @@
             document.getElementById('viewSubtitle').innerText = subMap[activeTab] || t.subDigest;
 
             render();
+        }
+
+        async function sendQuickChip(textVal) {
+            try {
+                await fetch('/api/records', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ telegram_id: tgId, title: textVal })
+                });
+                loadData();
+            } catch(e) {}
         }
 
         async function toggleMic() {
