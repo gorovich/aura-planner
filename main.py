@@ -21,15 +21,30 @@ import models
 
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
-from aiogram.types import WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from aiogram.filters.chat_member_updated import ChatMemberUpdatedFilter, KICKED, MEMBER
+from aiogram.types import WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, ChatMemberUpdated
+
+ADMIN_TELEGRAM_ID = 1689610141
 
 # --- АВТО-МИГРАЦИЯ СТРУКТУРЫ БД ---
 try:
     with engine.connect() as conn:
         conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS currency VARCHAR DEFAULT 'AMD';"))
         conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS language VARCHAR DEFAULT 'ru';"))
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR;"))
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name VARCHAR;"))
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE;"))
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_blocked BOOLEAN DEFAULT FALSE;"))
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_premium BOOLEAN DEFAULT FALSE;"))
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS bot_active BOOLEAN DEFAULT TRUE;"))
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;"))
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;"))
+        
         conn.execute(text("ALTER TABLE records ADD COLUMN IF NOT EXISTS type VARCHAR DEFAULT 'expense';"))
         conn.execute(text("ALTER TABLE records ADD COLUMN IF NOT EXISTS currency VARCHAR DEFAULT 'AMD';"))
+        
+        # Назначаем суперадмина
+        conn.execute(text(f"UPDATE users SET is_admin = TRUE WHERE telegram_id = {ADMIN_TELEGRAM_ID};"))
         conn.commit()
         print("Database schema successfully migrated!")
 except Exception as e:
@@ -40,7 +55,7 @@ Base.metadata.create_all(bind=engine)
 BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 WEBAPP_URL = os.getenv("WEBAPP_URL", "https://aura-planner-ejyi.onrender.com")
 
-app = FastAPI(title="Aura OS Gold API")
+app = FastAPI(title="Aura OS Royal Gold API")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
@@ -107,13 +122,37 @@ class RecordCreate(BaseModel):
 class ShortcutPayload(BaseModel):
     text: str
 
-# --- ПАРСЕР ЧИСЕЛ И ВАЛЮТ ---
-def parse_and_save(telegram_id: int, text: str, db: Session):
+class AdminUserAction(BaseModel):
+    admin_id: int
+    target_tg_id: int
+
+class AdminBroadcast(BaseModel):
+    admin_id: int
+    message_text: str
+
+# --- ПАРСЕР И РЕГИСТРАЦИЯ ЮЗЕРА ---
+def parse_and_save(telegram_id: int, text: str, db: Session, first_name: str = None, username: str = None):
     user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
     if not user:
-        user = models.User(telegram_id=telegram_id, currency="AMD", language="ru")
+        is_adm = (telegram_id == ADMIN_TELEGRAM_ID)
+        user = models.User(
+            telegram_id=telegram_id, 
+            currency="AMD", 
+            language="ru",
+            first_name=first_name,
+            username=username,
+            is_admin=is_adm
+        )
         db.add(user)
         db.commit()
+    else:
+        user.last_active_at = datetime.utcnow()
+        if first_name: user.first_name = first_name
+        if username: user.username = username
+        db.commit()
+
+    if user.is_blocked:
+        raise HTTPException(status_code=403, detail="Пользователь заблокирован")
 
     base_currency = user.currency or "AMD"
     category = "task"
@@ -240,20 +279,31 @@ async def ping():
 def get_user_info(telegram_id: int, db: Session = Depends(get_db)):
     user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
     if not user:
-        user = models.User(telegram_id=telegram_id, currency="AMD", language="ru")
+        is_adm = (telegram_id == ADMIN_TELEGRAM_ID)
+        user = models.User(telegram_id=telegram_id, currency="AMD", language="ru", is_admin=is_adm)
         db.add(user)
         db.commit()
         db.refresh(user)
-    return {"currency": user.currency, "language": user.language or "ru"}
+    else:
+        user.last_active_at = datetime.utcnow()
+        if telegram_id == ADMIN_TELEGRAM_ID and not user.is_admin:
+            user.is_admin = True
+        db.commit()
+
+    return {
+        "currency": user.currency, 
+        "language": user.language or "ru",
+        "is_admin": user.is_admin,
+        "is_premium": user.is_premium,
+        "is_blocked": user.is_blocked
+    }
 
 @app.post("/api/user/settings")
 def update_user_settings(data: UserSettings, db: Session = Depends(get_db)):
     user = db.query(models.User).filter(models.User.telegram_id == data.telegram_id).first()
     if user:
-        if data.currency:
-            user.currency = data.currency
-        if data.language:
-            user.language = data.language
+        if data.currency: user.currency = data.currency
+        if data.language: user.language = data.language
         db.commit()
     return {"status": "ok", "currency": user.currency, "language": user.language}
 
@@ -320,7 +370,114 @@ def handle_shortcut(id: int, payload: ShortcutPayload, db: Session = Depends(get
         "text": record.title
     }
 
-# --- TELEGRAM BOT И ИНТЕРАКТИВНЫЕ КНОПКИ ---
+# --- ADMIN API ENDPOINTS ---
+
+@app.get("/api/admin/stats/{admin_id}")
+def get_admin_stats(admin_id: int, db: Session = Depends(get_db)):
+    admin = db.query(models.User).filter(models.User.telegram_id == admin_id, models.User.is_admin == True).first()
+    if not admin and admin_id != ADMIN_TELEGRAM_ID:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    total_users = db.query(models.User).count()
+    active_bot_users = db.query(models.User).filter(models.User.bot_active == True).count()
+    blocked_bot_users = db.query(models.User).filter(models.User.bot_active == False).count()
+    premium_users = db.query(models.User).filter(models.User.is_premium == True).count()
+    banned_users = db.query(models.User).filter(models.User.is_blocked == True).count()
+    total_records = db.query(models.Record).count()
+
+    return {
+        "total_users": total_users,
+        "active_bot_users": active_bot_users,
+        "blocked_bot_users": blocked_bot_users,
+        "premium_users": premium_users,
+        "banned_users": banned_users,
+        "total_records": total_records
+    }
+
+@app.get("/api/admin/users/{admin_id}")
+def get_admin_users(admin_id: int, db: Session = Depends(get_db)):
+    admin = db.query(models.User).filter(models.User.telegram_id == admin_id, models.User.is_admin == True).first()
+    if not admin and admin_id != ADMIN_TELEGRAM_ID:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    users = db.query(models.User).order_by(models.User.id.desc()).all()
+    res = []
+    for u in users:
+        rec_count = db.query(models.Record).filter(models.Record.user_id == u.id).count()
+        res.append({
+            "id": u.id,
+            "telegram_id": u.telegram_id,
+            "first_name": u.first_name or "Без имени",
+            "username": u.username or "",
+            "language": u.language,
+            "currency": u.currency,
+            "is_premium": u.is_premium,
+            "is_blocked": u.is_blocked,
+            "bot_active": u.bot_active,
+            "records_count": rec_count,
+            "created_at": u.created_at.strftime("%Y-%m-%d %H:%M") if u.created_at else ""
+        })
+    return res
+
+@app.post("/api/admin/toggle-premium")
+def admin_toggle_premium(data: AdminUserAction, db: Session = Depends(get_db)):
+    if data.admin_id != ADMIN_TELEGRAM_ID:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    user = db.query(models.User).filter(models.User.telegram_id == data.target_tg_id).first()
+    if user:
+        user.is_premium = not user.is_premium
+        db.commit()
+        return {"status": "ok", "is_premium": user.is_premium}
+    raise HTTPException(status_code=404, detail="User not found")
+
+@app.post("/api/admin/toggle-ban")
+def admin_toggle_ban(data: AdminUserAction, db: Session = Depends(get_db)):
+    if data.admin_id != ADMIN_TELEGRAM_ID:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    user = db.query(models.User).filter(models.User.telegram_id == data.target_tg_id).first()
+    if user:
+        user.is_blocked = not user.is_blocked
+        db.commit()
+        return {"status": "ok", "is_blocked": user.is_blocked}
+    raise HTTPException(status_code=404, detail="User not found")
+
+@app.post("/api/admin/broadcast")
+async def admin_broadcast(data: AdminBroadcast, db: Session = Depends(get_db)):
+    if data.admin_id != ADMIN_TELEGRAM_ID:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    
+    users = db.query(models.User).filter(models.User.bot_active == True, models.User.is_blocked == False).all()
+    success_count = 0
+    fail_count = 0
+
+    for u in users:
+        try:
+            await bot.send_message(u.telegram_id, data.message_text, parse_mode="Markdown")
+            success_count += 1
+        except Exception:
+            fail_count += 1
+            u.bot_active = False
+            db.commit()
+
+    return {"status": "ok", "success": success_count, "failed": fail_count}
+
+# --- TELEGRAM BOT И ДЕТЕКЦИЯ БЛОКИРОВКИ ЮЗЕРОМ ---
+
+@dp.my_chat_member(ChatMemberUpdatedFilter(member_status_changed=KICKED))
+async def user_blocked_bot(event: ChatMemberUpdated):
+    db = next(get_db())
+    user = db.query(models.User).filter(models.User.telegram_id == event.from_user.id).first()
+    if user:
+        user.bot_active = False
+        db.commit()
+
+@dp.my_chat_member(ChatMemberUpdatedFilter(member_status_changed=MEMBER))
+async def user_unblocked_bot(event: ChatMemberUpdated):
+    db = next(get_db())
+    user = db.query(models.User).filter(models.User.telegram_id == event.from_user.id).first()
+    if user:
+        user.bot_active = True
+        db.commit()
 
 def get_record_keyboard(record_id: int):
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -332,6 +489,15 @@ def get_record_keyboard(record_id: int):
 
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
+    db = next(get_db())
+    parse_and_save(
+        message.from_user.id, 
+        "", 
+        db, 
+        first_name=message.from_user.first_name, 
+        username=message.from_user.username
+    )
+    
     markup = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="👑 Открыть Aura OS Gold", web_app=WebAppInfo(url=WEBAPP_URL))]
     ])
@@ -344,7 +510,13 @@ async def cmd_start(message: types.Message):
 @dp.message(F.text)
 async def handle_text_message(message: types.Message):
     db = next(get_db())
-    rec = parse_and_save(message.from_user.id, message.text, db)
+    rec = parse_and_save(
+        message.from_user.id, 
+        message.text, 
+        db, 
+        first_name=message.from_user.first_name, 
+        username=message.from_user.username
+    )
     emoji = "📈" if rec.type == "income" else ("💸" if rec.category == "finance" else "✅")
     
     await message.answer(
@@ -364,7 +536,13 @@ async def handle_voice_message(message: types.Message):
     if not recognized_text:
         recognized_text = "Голосовая запись"
 
-    rec = parse_and_save(message.from_user.id, recognized_text, db)
+    rec = parse_and_save(
+        message.from_user.id, 
+        recognized_text, 
+        db, 
+        first_name=message.from_user.first_name, 
+        username=message.from_user.username
+    )
     emoji = "📈" if rec.type == "income" else ("💸" if rec.category == "finance" else "✅")
     
     await message.answer(
@@ -389,7 +567,7 @@ async def cb_toggle_type(callback: CallbackQuery):
             parse_mode="Markdown",
             reply_markup=get_record_keyboard(rec.id)
         )
-        await callback.answer("Тип записи успешно изменен!")
+        await callback.answer("Тип записи изменен!")
     else:
         await callback.answer("Запись не найдена", show_alert=True)
 
@@ -401,7 +579,7 @@ async def cb_delete_rec(callback: CallbackQuery):
     if rec:
         db.delete(rec)
         db.commit()
-        await callback.message.edit_text("🗑 Запись успешно удалена!", parse_mode="Markdown")
+        await callback.message.edit_text("🗑 Запись удалена!", parse_mode="Markdown")
         await callback.answer("Удалено")
     else:
         await callback.answer("Запись не найдена", show_alert=True)
@@ -411,13 +589,12 @@ async def daily_digest_scheduler():
     last_sent_date = None
     while True:
         try:
-            # Часовой пояс Еревана (UTC+4)
             yerevan_tz = timezone(timedelta(hours=4))
             now = datetime.now(yerevan_tz)
             
             if now.hour == 21 and last_sent_date != now.date():
                 db = next(get_db())
-                users = db.query(models.User).all()
+                users = db.query(models.User).filter(models.User.bot_active == True, models.User.is_blocked == False).all()
                 
                 for user in users:
                     records = db.query(models.Record).filter(models.Record.user_id == user.id).all()
@@ -437,13 +614,14 @@ async def daily_digest_scheduler():
                     try:
                         await bot.send_message(user.telegram_id, msg, parse_mode="Markdown")
                     except Exception:
-                        pass
+                        user.bot_active = False
+                        db.commit()
                 
                 last_sent_date = now.date()
         except Exception as e:
             print(f"Digest error: {e}")
             
-        await asyncio.sleep(300) # Проверка каждые 5 минут
+        await asyncio.sleep(300)
 
 async def keep_alive():
     await asyncio.sleep(30)
