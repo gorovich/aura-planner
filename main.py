@@ -25,15 +25,76 @@ from aiogram.filters import CommandStart, Command
 from aiogram.filters.chat_member_updated import ChatMemberUpdatedFilter, KICKED, MEMBER
 from aiogram.types import WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, ChatMemberUpdated
 
+# --- КОНФИГУРАЦИЯ ---
 ADMIN_TELEGRAM_ID = 1689610141
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 WEBAPP_URL = os.getenv("WEBAPP_URL", "https://aura-planner-ejyi.onrender.com")
 
-# --- МЕНЕДЖЕР ЖИЗНЕННОГО ЦИКЛА (ФИКС ДЛЯ RENDER) ---
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher()
+recognizer = sr.Recognizer()
+
+
+# --- ФОНОВЫЕ ЗАДАЧИ И ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ СТАРТА ---
+async def run_bot():
+    await asyncio.sleep(3)
+    await dp.start_polling(bot, handle_signals=False)
+
+async def keep_alive():
+    await asyncio.sleep(30)
+    ping_url = f"{WEBAPP_URL}/ping"
+    async with httpx.AsyncClient() as client:
+        while True:
+            try:
+                await client.get(ping_url)
+            except Exception:
+                pass
+            await asyncio.sleep(600)
+
+async def daily_digest_scheduler():
+    last_sent_date = None
+    while True:
+        try:
+            yerevan_tz = timezone(timedelta(hours=4))
+            now = datetime.now(yerevan_tz)
+            
+            if now.hour == 21 and last_sent_date != now.date():
+                db = next(get_db())
+                users = db.query(models.User).filter(models.User.bot_active == True, models.User.is_blocked == False).all()
+                
+                for user in users:
+                    records = db.query(models.Record).filter(models.Record.user_id == user.id).all()
+                    inc_total = sum(r.amount for r in records if r.type == "income")
+                    exp_total = sum(r.amount for r in records if r.type == "expense")
+                    tasks_cnt = sum(1 for r in records if r.category == "task")
+                    
+                    curr = user.currency or "AMD"
+                    msg = (
+                        f"🌙 **Вечерний Дайджест Aura OS** ({now.strftime('%d.%m')})\n\n"
+                        f"📈 Доходы за всё время: `{inc_total:.2f} {curr}`\n"
+                        f"💸 Расходы за всё время: `{exp_total:.2f} {curr}`\n"
+                        f"💰 Свободный Баланс: `{(inc_total - exp_total):.2f} {curr}`\n"
+                        f"✅ Активных задач: `{tasks_cnt}`\n\n"
+                        f"Хорошего вечера!"
+                    )
+                    try:
+                        await bot.send_message(user.telegram_id, msg, parse_mode="Markdown")
+                    except Exception:
+                        user.bot_active = False
+                        db.commit()
+                
+                last_sent_date = now.date()
+        except Exception as e:
+            print(f"Digest error: {e}")
+            
+        await asyncio.sleep(300)
+
+
+# --- ЖИЗНЕННЫЙ ЦИКЛ ПРИЛОЖЕНИЯ (LIFESPAN ДЛЯ RENDER) ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Миграции и создание таблиц БД при старте
+    # 1. Автоматическая миграция БД при старте
     try:
         with engine.connect() as conn:
             conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS currency VARCHAR DEFAULT 'AMD';"))
@@ -58,19 +119,20 @@ async def lifespan(app: FastAPI):
 
     Base.metadata.create_all(bind=engine)
 
-    # Фоновые задачи запускаются без блокировки порта
+    # 2. Неблокирующий запуск фоновых задач
     bot_task = asyncio.create_task(run_bot())
     keep_alive_task = asyncio.create_task(keep_alive())
     digest_task = asyncio.create_task(daily_digest_scheduler())
 
-    yield  # В этот момент веб-сервер открывает порт $PORT
+    yield  # Сервер моментально открывает $PORT и рапортует Готовность
 
-    # Корректная остановка задач при выключении сервера
+    # 3. Мягкая остановка фоновых задач
     bot_task.cancel()
     keep_alive_task.cancel()
     digest_task.cancel()
 
 
+# --- ИНИЦИАЛИЗАЦИЯ FASTAPI И СТАТИКИ ---
 app = FastAPI(title="Aura OS Royal Gold API", lifespan=lifespan)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -81,17 +143,15 @@ if not os.path.exists(STATIC_DIR):
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher()
-recognizer = sr.Recognizer()
 
-# --- HEALTH CHECK ДЛЯ МГНОВЕННОГО ДЕПЛОЯ RENDER ---
+# --- HEALTH CHECK ---
 @app.get("/healthz")
 @app.get("/ping")
 async def health_check():
     return {"status": "ok", "online": True}
 
-# --- КУРСЫ ВАЛЮТ ---
+
+# --- КУРСЫ ВАЛЮТ И ОБРАБОТКА АУДИО ---
 RATES_TO_USD = {
     "USD": 1.0,
     "AMD": 0.00258,
@@ -132,6 +192,8 @@ def recognize_speech_free(audio_bytes: bytes) -> str:
         print(f"Audio processing error: {e}")
     return ""
 
+
+# --- PYDANTIC МОДЕЛИ ---
 class UserSettings(BaseModel):
     telegram_id: int
     currency: Optional[str] = None
@@ -156,6 +218,7 @@ class AdminDirectMessage(BaseModel):
     admin_id: int
     target: str
     message_text: str
+
 
 # --- ПАРСЕР И РЕГИСТРАЦИЯ ЮЗЕРА ---
 def parse_and_save(telegram_id: int, text: str, db: Session, first_name: str = None, username: str = None):
@@ -290,6 +353,7 @@ def parse_and_save(telegram_id: int, text: str, db: Session, first_name: str = N
     db.refresh(record)
     return record
 
+
 # --- REST API ---
 
 @app.get("/", response_class=HTMLResponse)
@@ -409,6 +473,7 @@ def handle_shortcut(id: int, payload: ShortcutPayload, db: Session = Depends(get
         "text": record.title
     }
 
+
 # --- ADMIN API ENDPOINTS ---
 
 @app.get("/api/admin/stats/{admin_id}")
@@ -527,7 +592,8 @@ async def admin_direct_message(data: AdminDirectMessage, db: Session = Depends(g
         db.commit()
         raise HTTPException(status_code=400, detail=f"Ошибка отправки: {e}")
 
-# --- TELEGRAM BOT И ДЕТЕКЦИЯ БЛОКИРОВКИ ЮЗЕРОМ ---
+
+# --- TELEGRAM BOT И ХЭНДЛЕРЫ ---
 
 @dp.my_chat_member(ChatMemberUpdatedFilter(member_status_changed=KICKED))
 async def user_blocked_bot(event: ChatMemberUpdated):
@@ -649,65 +715,3 @@ async def cb_delete_rec(callback: CallbackQuery):
         await callback.answer("Удалено")
     else:
         await callback.answer("Запись не найдена", show_alert=True)
-
-# --- ЕЖЕДНЕВНЫЙ ДАЙДЖЕСТ (21:00 ПО ЕРЕВАНУ) ---
-async def daily_digest_scheduler():
-    last_sent_date = None
-    while True:
-        try:
-            yerevan_tz = timezone(timedelta(hours=4))
-            now = datetime.now(yerevan_tz)
-            
-            if now.hour == 21 and last_sent_date != now.date():
-                db = next(get_db())
-                users = db.query(models.User).filter(models.User.bot_active == True, models.User.is_blocked == False).all()
-                
-                for user in users:
-                    records = db.query(models.Record).filter(models.Record.user_id == user.id).all()
-                    inc_total = sum(r.amount for r in records if r.type == "income")
-                    exp_total = sum(r.amount for r in records if r.type == "expense")
-                    tasks_cnt = sum(1 for r in records if r.category == "task")
-                    
-                    curr = user.currency or "AMD"
-                    msg = (
-                        f"🌙 **Вечерний Дайджест Aura OS** ({now.strftime('%d.%m')})\n\n"
-                        f"📈 Доходы за всё время: `{inc_total:.2f} {curr}`\n"
-                        f"💸 Расходы за всё время: `{exp_total:.2f} {curr}`\n"
-                        f"💰 Свободный Баланс: `{(inc_total - exp_total):.2f} {curr}`\n"
-                        f"✅ Активных задач: `{tasks_cnt}`\n\n"
-                        f"Хорошего вечера!"
-                    )
-                    try:
-                        await bot.send_message(user.telegram_id, msg, parse_mode="Markdown")
-                    except Exception:
-                        user.bot_active = False
-                        db.commit()
-                
-                last_sent_date = now.date()
-        except Exception as e:
-            print(f"Digest error: {e}")
-            
-        await asyncio.sleep(300)
-
-async def keep_alive():
-    await asyncio.sleep(30)
-    ping_url = f"{WEBAPP_URL}/ping"
-    async with httpx.AsyncClient() as client:
-        while True:
-            try:
-                await client.get(ping_url)
-            except Exception:
-                pass
-            await asyncio.sleep(600)
-
-async def run_bot():
-    await asyncio.sleep(3)
-    await dp.start_polling(bot, handle_signals=False)
-
-# --- АСИНХРОННЫЙ СТАРТ ПОСЛЕ ПОДНЯТИЯ ПОРТА ---
-
-@app.on_event("startup")
-async def on_startup():
-    try:
-        with engine.connect() as conn:
-            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS currency VARCHAR DEFAULT 'AMD';"))
