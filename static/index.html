@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Aura OS Planner</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         :root {
@@ -23,29 +22,24 @@
         body { background-color: var(--bg-main); color: var(--text-white); padding-bottom: 95px; min-height: 100vh; }
         .app-container { max-width: 480px; margin: 0 auto; padding: 16px; }
 
-        /* Header */
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
         .user-badge { display: flex; align-items: center; gap: 10px; }
         .avatar { width: 38px; height: 38px; border-radius: 12px; background: linear-gradient(135deg, #6366f1, #a855f7); display: flex; align-items: center; justify-content: center; font-weight: bold; }
 
-        /* Navigation Sections */
         .view-section { display: none; }
         .view-section.active { display: block; }
 
-        /* Cards */
         .sgx-card { background: var(--card-bg); backdrop-filter: blur(16px); border: 1px solid var(--border-glow); border-radius: 20px; padding: 16px; margin-bottom: 12px; }
-        .card-header { display: flex; justify-content: space-between; color: var(--text-muted); font-size: 0.8rem; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .card-header { display: flex; justify-content: space-between; color: var(--text-muted); font-size: 0.8rem; margin-bottom: 6px; text-transform: uppercase; }
         .balance-val { font-size: 1.8rem; font-weight: 800; }
 
         .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 
-        /* Item Rows */
         .item-row { background: var(--card-bg); border: 1px solid var(--border-glow); border-radius: 16px; padding: 12px 14px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
         .item-info { display: flex; align-items: center; gap: 12px; }
         .item-icon { width: 34px; height: 34px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 0.9rem; }
         .delete-btn { background: transparent; border: none; color: var(--text-muted); cursor: pointer; padding: 4px; }
 
-        /* Floating Input with Web Audio Mic */
         .floating-input { 
             position: fixed; bottom: 75px; left: 50%; transform: translateX(-50%); 
             width: calc(100% - 32px); max-width: 448px; 
@@ -61,13 +55,12 @@
 
         @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
 
-        /* Bottom Navigation */
         .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; background: rgba(9, 13, 22, 0.95); backdrop-filter: blur(20px); border-top: 1px solid var(--border-glow); height: 65px; display: flex; justify-content: space-around; align-items: center; z-index: 99; }
         .nav-item { display: flex; flex-direction: column; align-items: center; gap: 3px; color: var(--text-muted); font-size: 0.65rem; border: none; background: transparent; cursor: pointer; width: 20%; }
         .nav-item i { font-size: 1.1rem; }
         .nav-item.active { color: var(--accent-primary); }
 
-        .copy-box { background: rgba(0,0,0,0.3); border: 1px solid var(--border-glow); padding: 10px; border-radius: 12px; font-family: monospace; font-size: 0.8rem; word-break: break-all; margin-top: 6px; }
+        .select-box { background: rgba(0,0,0,0.3); border: 1px solid var(--border-glow); color: white; padding: 8px 12px; border-radius: 10px; width: 100%; margin-top: 6px; outline: none; }
     </style>
 </head>
 <body>
@@ -81,14 +74,14 @@
                     <p style="font-size: 0.7rem; color: var(--text-muted);">Дайджест</p>
                 </div>
             </div>
-            <i class="fa-solid fa-gear" style="color: var(--text-muted); cursor: pointer;" onclick="switchView('settings', document.querySelector('.nav-item:last-child'))"></i>
+            <i class="fa-solid fa-gear" style="color: var(--text-muted); cursor: pointer;" onclick="switchView('settings', document.querySelectorAll('.nav-item')[3])"></i>
         </div>
 
         <!-- VIEW 1: DIGEST -->
         <div id="view-digest" class="view-section active">
             <div class="sgx-card">
                 <div class="card-header">Свободный баланс</div>
-                <div class="balance-val" id="totalBalance">$0.00</div>
+                <div class="balance-val" id="totalBalance">0 ֏</div>
             </div>
             <div class="grid-2">
                 <div class="sgx-card" onclick="switchView('tasks', document.querySelectorAll('.nav-item')[1])">
@@ -97,7 +90,7 @@
                 </div>
                 <div class="sgx-card" onclick="switchView('finance', document.querySelectorAll('.nav-item')[2])">
                     <div class="card-header">Расходы</div>
-                    <div style="font-size: 1.3rem; font-weight:700; color:var(--accent-red);" id="cntExpenses">$0</div>
+                    <div style="font-size: 1.3rem; font-weight:700; color:var(--accent-red);" id="cntExpenses">0 ֏</div>
                 </div>
             </div>
             <h4 style="margin: 12px 0 8px 0; font-size: 0.85rem; color: var(--text-muted);">Дайджест за день</h4>
@@ -112,22 +105,25 @@
 
         <!-- VIEW 3: FINANCE -->
         <div id="view-finance" class="view-section">
-            <h3 style="margin-bottom: 12px;">Финансы</h3>
+            <h3 style="margin-bottom: 12px;">Финансы (Доходы и Расходы)</h3>
             <div id="financeList"></div>
         </div>
 
         <!-- VIEW 4: SETTINGS -->
         <div id="view-settings" class="view-section">
-            <h3 style="margin-bottom: 12px;">Интеграция iOS (Siri / Action Button)</h3>
+            <h3 style="margin-bottom: 12px;">Настройки</h3>
             <div class="sgx-card">
-                <div style="font-size:0.85rem; font-weight:600; margin-bottom:4px;">Ссылка для Быстрых команд</div>
-                <div style="font-size:0.75rem; color:var(--text-muted);">Скопируйте эту ссылку в поле URL вашей команды на iPhone:</div>
-                <div class="copy-box" id="apiUrlBox">Загрузка...</div>
+                <div style="font-size:0.85rem; font-weight:600;">Основная валюта аккаунта</div>
+                <select id="userCurrSelect" class="select-box" onchange="updateCurrency(this.value)">
+                    <option value="AMD">AMD (֏ - Армянский Драм)</option>
+                    <option value="USD">USD ($ - Доллар)</option>
+                    <option value="RUB">RUB (₽ - Русский Рубль)</option>
+                </select>
             </div>
         </div>
     </div>
 
-    <!-- Floating Bar with Direct Mic Permission Request -->
+    <!-- Floating Bar -->
     <div class="floating-input">
         <input type="text" id="smartInput" placeholder="Напишите или надиктуйте..." onkeypress="if(event.key==='Enter') sendInput()">
         <button class="mic-btn" id="micBtn" onclick="toggleMic()"><i class="fa-solid fa-microphone"></i></button>
@@ -152,20 +148,40 @@
             document.getElementById('uAvatar').innerText = (tg.initDataUnsafe.user.first_name || 'A')[0].toUpperCase();
         }
 
-        document.getElementById('apiUrlBox').innerText = `${window.location.origin}/api/shortcut?id=${tgId}`;
-
         let records = [];
+        let userCurrency = "AMD";
         let mediaRecorder = null;
         let audioChunks = [];
         let isRecording = false;
 
-        // Запрос микрофона прямо из веб-интерфейса
+        async function loadUserInfo() {
+            try {
+                const res = await fetch(`/api/user/${tgId}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    userCurrency = data.currency || "AMD";
+                    document.getElementById('userCurrSelect').value = userCurrency;
+                }
+            } catch(e) {}
+        }
+
+        async function updateCurrency(curr) {
+            userCurrency = curr;
+            try {
+                await fetch('/api/user/settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ telegram_id: tgId, currency: curr })
+                });
+            } catch(e) {}
+            loadData();
+        }
+
         async function toggleMic() {
             const micBtn = document.getElementById('micBtn');
 
             if (!isRecording) {
                 try {
-                    // Явный запрос доступа к микрофону у браузера Telegram
                     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                     mediaRecorder = new MediaRecorder(stream);
                     audioChunks = [];
@@ -173,7 +189,6 @@
                     mediaRecorder.ondataavailable = event => audioChunks.push(event.data);
                     mediaRecorder.onstop = async () => {
                         const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
-                        // Отправка аудио на бэкенд
                         const formData = new FormData();
                         formData.append('file', audioBlob);
                         formData.append('telegram_id', tgId);
@@ -188,7 +203,7 @@
                     isRecording = true;
                     micBtn.classList.add('recording');
                 } catch (err) {
-                    alert('Для записи разрешите доступ к микрофону в настройках браузера!');
+                    alert('Разрешите доступ к микрофону!');
                 }
             } else {
                 mediaRecorder.stop();
@@ -243,22 +258,27 @@
             homeList.innerHTML = ''; tasksList.innerHTML = ''; financeList.innerHTML = '';
 
             let expTotal = 0;
+            let incTotal = 0;
             let taskCnt = 0;
 
             records.forEach(r => {
-                if (r.category === 'finance') expTotal += (r.amount || 0);
+                if (r.category === 'finance') {
+                    if (r.type === 'income') incTotal += (r.amount || 0);
+                    else expTotal += (r.amount || 0);
+                }
                 if (r.category === 'task') taskCnt++;
 
+                const isIncome = r.type === 'income';
                 const row = document.createElement('div');
                 row.className = 'item-row';
                 row.innerHTML = `
                     <div class="item-info">
-                        <div class="item-icon" style="background:${r.category==='finance'?'rgba(244,63,94,0.15)':'rgba(99,102,241,0.15)'}; color:${r.category==='finance'?'#f43f5e':'#6366f1'};">
-                            <i class="fa-solid ${r.category==='finance'?'fa-receipt':'fa-check'}"></i>
+                        <div class="item-icon" style="background:${r.category==='finance'?(isIncome?'rgba(16,185,129,0.15)':'rgba(244,63,94,0.15)'):'rgba(99,102,241,0.15)'}; color:${r.category==='finance'?(isIncome?'#10b981':'#f43f5e'):'#6366f1'};">
+                            <i class="fa-solid ${r.category==='finance'?(isIncome?'fa-arrow-down-left':'fa-arrow-up-right'):'fa-check'}"></i>
                         </div>
                         <div>
                             <div style="font-size:0.88rem; font-weight:600;">${r.title}</div>
-                            <div style="font-size:0.72rem; color:var(--text-muted);">${r.category.toUpperCase()} ${r.amount ? '• $' + r.amount : ''}</div>
+                            <div style="font-size:0.72rem; color:var(--text-muted);">${r.category.toUpperCase()} ${r.amount ? '• ' + (isIncome ? '+' : '-') + r.amount + ' ' + (r.currency || userCurrency) : ''}</div>
                         </div>
                     </div>
                     <button class="delete-btn" onclick="deleteRecord(${r.id})"><i class="fa-solid fa-trash"></i></button>
@@ -269,12 +289,13 @@
                 if (r.category === 'finance') financeList.appendChild(row.cloneNode(true));
             });
 
-            document.getElementById('cntExpenses').innerText = '$' + expTotal;
+            const currSymbol = userCurrency === 'AMD' ? '֏' : (userCurrency === 'USD' ? '$' : '₽');
+            document.getElementById('cntExpenses').innerText = expTotal + ' ' + currSymbol;
             document.getElementById('cntTasks').innerText = taskCnt;
-            document.getElementById('totalBalance').innerText = '$' + (1000 - expTotal).toFixed(2);
+            document.getElementById('totalBalance').innerText = (incTotal - expTotal) + ' ' + currSymbol;
         }
 
-        loadData();
+        loadUserInfo().then(loadData);
     </script>
 </body>
 </html>
