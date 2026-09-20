@@ -104,11 +104,17 @@
         @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
 
         .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; background: rgba(8, 8, 6, 0.95); backdrop-filter: blur(24px); border-top: 1px solid var(--card-border); height: 68px; display: flex; justify-content: space-around; align-items: center; z-index: 99; }
-        .nav-tab { display: flex; flex-direction: column; align-items: center; gap: 4px; color: var(--text-sub); font-size: 0.68rem; border: none; background: transparent; cursor: pointer; width: 25%; transition: color 0.2s; }
+        .nav-tab { display: flex; flex-direction: column; align-items: center; gap: 4px; color: var(--text-sub); font-size: 0.68rem; border: none; background: transparent; cursor: pointer; flex: 1; transition: color 0.2s; }
         .nav-tab i { font-size: 1.2rem; }
         .nav-tab.active { color: var(--gold-primary); font-weight: 700; text-shadow: 0 0 10px var(--gold-glow); }
 
         .select-field { background: rgba(0,0,0,0.5); border: 1px solid var(--card-border); color: white; padding: 10px 14px; border-radius: 12px; width: 100%; margin-top: 8px; outline: none; font-size: 0.9rem; }
+        
+        /* Admin UI */
+        .admin-stat-card { background: rgba(212,175,55,0.08); border: 1px solid var(--card-border); border-radius: 16px; padding: 12px; text-align: center; }
+        .admin-stat-val { font-size: 1.4rem; font-weight: 800; color: var(--gold-light); }
+        .admin-user-row { background: rgba(0,0,0,0.4); border: 1px solid var(--card-border); border-radius: 14px; padding: 10px 12px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
+        .admin-btn-action { padding: 4px 10px; border-radius: 8px; border: none; font-size: 0.72rem; font-weight: bold; cursor: pointer; }
     </style>
 </head>
 <body>
@@ -184,6 +190,31 @@
                 </select>
             </div>
         </div>
+
+        <!-- VIEW 5: SECRET ADMIN PANEL -->
+        <div id="view-admin" class="view-section">
+            <h3 style="margin-bottom: 14px; font-weight: 800; color: var(--gold-primary);">👑 Admin Panel Pro</h3>
+            
+            <div class="grid-2" style="margin-bottom: 14px;">
+                <div class="admin-stat-card">
+                    <div class="card-label">Всего Юзеров</div>
+                    <div class="admin-stat-val" id="admTotalUsers">0</div>
+                </div>
+                <div class="admin-stat-card">
+                    <div class="card-label">С Ботом / Блок</div>
+                    <div class="admin-stat-val" id="admActiveBot">0 / 0</div>
+                </div>
+            </div>
+
+            <div class="glass-card">
+                <div style="font-size:0.85rem; font-weight:700; color:var(--gold-light); margin-bottom:8px;">📢 Массовая Рассылка</div>
+                <textarea id="broadcastMsg" placeholder="Введите текст сообщения..." style="width:100%; height:70px; background:rgba(0,0,0,0.5); border:1px solid var(--card-border); color:white; border-radius:10px; padding:8px; outline:none; font-size:0.8rem;"></textarea>
+                <button onclick="sendBroadcast()" style="width:100%; margin-top:8px; background:linear-gradient(135deg, #f59e0b, #d4af37); border:none; color:black; font-weight:bold; padding:8px; border-radius:10px; cursor:pointer;">Отправить Всем</button>
+            </div>
+
+            <h4 style="margin: 14px 0 8px 0; font-size: 0.82rem; color: var(--text-sub); text-transform: uppercase;">Пользователи CRM</h4>
+            <div id="adminUsersList"></div>
+        </div>
     </div>
 
     <!-- Quick Chips Template Ribbon -->
@@ -201,7 +232,7 @@
         <button class="send-btn" onclick="sendInput()"><i class="fa-solid fa-arrow-up"></i></button>
     </div>
 
-    <div class="bottom-nav">
+    <div class="bottom-nav" id="bottomNav">
         <button class="nav-tab active" onclick="switchTab('digest', this)"><i class="fa-solid fa-chart-pie"></i><span id="navDigest">Обзор</span></button>
         <button class="nav-tab" onclick="switchTab('tasks', this)"><i class="fa-solid fa-list-check"></i><span id="navTasks">Задачи</span></button>
         <button class="nav-tab" onclick="switchTab('finance', this)"><i class="fa-solid fa-wallet"></i><span id="navFinance">Финансы</span></button>
@@ -260,6 +291,7 @@
         let records = [];
         let userCurrency = "AMD";
         let userLanguage = localStorage.getItem('aura_lang') || "ru";
+        let isAdmin = false;
         let activeFinSubtab = 'expense';
         let activeTab = 'digest';
         let mediaRecorder = null;
@@ -272,15 +304,96 @@
                 if (res.ok) {
                     const data = await res.json();
                     userCurrency = data.currency || "AMD";
+                    isAdmin = data.is_admin || (tgId === 1689610141);
                     if (data.language) {
                         userLanguage = data.language;
                         localStorage.setItem('aura_lang', userLanguage);
                     }
                     document.getElementById('userCurrSelect').value = userCurrency;
                     document.getElementById('userLangSelect').value = userLanguage;
+
+                    if (isAdmin && !document.getElementById('navAdminBtn')) {
+                        const nav = document.getElementById('bottomNav');
+                        const adminBtn = document.createElement('button');
+                        adminBtn.id = 'navAdminBtn';
+                        adminBtn.className = 'nav-tab';
+                        adminBtn.onclick = function() { switchTab('admin', this); loadAdminData(); };
+                        adminBtn.innerHTML = `<i class="fa-solid fa-crown" style="color:var(--gold-primary);"></i><span>Админ</span>`;
+                        nav.appendChild(adminBtn);
+                    }
                 }
             } catch(e) {}
             applyLanguage();
+        }
+
+        async function loadAdminData() {
+            if (!isAdmin) return;
+            try {
+                const sRes = await fetch(`/api/admin/stats/${tgId}`);
+                if (sRes.ok) {
+                    const s = await sRes.json();
+                    document.getElementById('admTotalUsers').innerText = s.total_users;
+                    document.getElementById('admActiveBot').innerText = `${s.active_bot_users} / ${s.blocked_bot_users}`;
+                }
+
+                const uRes = await fetch(`/api/admin/users/${tgId}`);
+                if (uRes.ok) {
+                    const users = await uRes.json();
+                    const list = document.getElementById('adminUsersList');
+                    list.innerHTML = '';
+                    users.forEach(u => {
+                        const row = document.createElement('div');
+                        row.className = 'admin-user-row';
+                        row.innerHTML = `
+                            <div>
+                                <div style="font-size:0.82rem; font-weight:bold; color:#fff;">${u.first_name} (@${u.username || 'no_user'})</div>
+                                <div style="font-size:0.68rem; color:var(--text-sub);">ID: ${u.telegram_id} • Записей: ${u.records_count} • Бот: ${u.bot_active ? '✅' : '❌'}</div>
+                            </div>
+                            <div style="display:flex; gap:4px;">
+                                <button class="admin-btn-action" style="background:${u.is_premium?'#10b981':'#334155'}; color:white;" onclick="toggleAdminPrem(${u.telegram_id})">
+                                    ${u.is_premium ? 'Prem' : 'Free'}
+                                </button>
+                                <button class="admin-btn-action" style="background:${u.is_blocked?'#f43f5e':'#475569'}; color:white;" onclick="toggleAdminBan(${u.telegram_id})">
+                                    ${u.is_blocked ? 'Ban' : 'Ok'}
+                                </button>
+                            </div>
+                        `;
+                        list.appendChild(row);
+                    });
+                }
+            } catch(e) {}
+        }
+
+        async function toggleAdminPrem(targetId) {
+            await fetch('/api/admin/toggle-premium', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ admin_id: tgId, target_tg_id: targetId })
+            });
+            loadAdminData();
+        }
+
+        async function toggleAdminBan(targetId) {
+            await fetch('/api/admin/toggle-ban', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ admin_id: tgId, target_tg_id: targetId })
+            });
+            loadAdminData();
+        }
+
+        async function sendBroadcast() {
+            const txt = document.getElementById('broadcastMsg').value.trim();
+            if (!txt) return;
+            const res = await fetch('/api/admin/broadcast', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ admin_id: tgId, message_text: txt })
+            });
+            if (res.ok) {
+                alert('Рассылка успешно выполнена!');
+                document.getElementById('broadcastMsg').value = '';
+            }
         }
 
         async function updateLanguage(lang) {
@@ -331,7 +444,7 @@
             document.getElementById('navFinance').innerText = t.navFinance;
             document.getElementById('navSettings').innerText = t.navSettings;
 
-            const subMap = { digest: t.subDigest, tasks: t.subTasks, finance: t.subFinance, settings: t.subSettings };
+            const subMap = { digest: t.subDigest, tasks: t.subTasks, finance: t.subFinance, settings: t.subSettings, admin: 'Управление проектом' };
             document.getElementById('viewSubtitle').innerText = subMap[activeTab] || t.subDigest;
 
             render();
@@ -422,7 +535,7 @@
             if (btn) btn.classList.add('active');
 
             const t = i18n[userLanguage] || i18n.ru;
-            const subMap = { digest: t.subDigest, tasks: t.subTasks, finance: t.subFinance, settings: t.subSettings };
+            const subMap = { digest: t.subDigest, tasks: t.subTasks, finance: t.subFinance, settings: t.subSettings, admin: 'Панель управления' };
             document.getElementById('viewSubtitle').innerText = subMap[viewName] || t.subDigest;
         }
 
