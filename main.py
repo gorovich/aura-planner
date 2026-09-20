@@ -4,6 +4,7 @@ import io
 import asyncio
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List
+from contextlib import asynccontextmanager
 from pydantic import BaseModel
 import httpx
 
@@ -29,7 +30,48 @@ ADMIN_TELEGRAM_ID = 1689610141
 BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 WEBAPP_URL = os.getenv("WEBAPP_URL", "https://aura-planner-ejyi.onrender.com")
 
-app = FastAPI(title="Aura OS Royal Gold API")
+# --- МЕНЕДЖЕР ЖИЗНЕННОГО ЦИКЛА (ФИКС ДЛЯ RENDER) ---
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Миграции и создание таблиц БД при старте
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS currency VARCHAR DEFAULT 'AMD';"))
+            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS language VARCHAR DEFAULT 'ru';"))
+            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR;"))
+            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name VARCHAR;"))
+            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE;"))
+            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_blocked BOOLEAN DEFAULT FALSE;"))
+            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_premium BOOLEAN DEFAULT FALSE;"))
+            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS bot_active BOOLEAN DEFAULT TRUE;"))
+            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;"))
+            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;"))
+            
+            conn.execute(text("ALTER TABLE records ADD COLUMN IF NOT EXISTS type VARCHAR DEFAULT 'expense';"))
+            conn.execute(text("ALTER TABLE records ADD COLUMN IF NOT EXISTS currency VARCHAR DEFAULT 'AMD';"))
+            
+            conn.execute(text(f"UPDATE users SET is_admin = TRUE WHERE telegram_id = {ADMIN_TELEGRAM_ID};"))
+            conn.commit()
+            print("Database schema successfully migrated!")
+    except Exception as e:
+        print(f"Migration notice: {e}")
+
+    Base.metadata.create_all(bind=engine)
+
+    # Фоновые задачи запускаются без блокировки порта
+    bot_task = asyncio.create_task(run_bot())
+    keep_alive_task = asyncio.create_task(keep_alive())
+    digest_task = asyncio.create_task(daily_digest_scheduler())
+
+    yield  # В этот момент веб-сервер открывает порт $PORT
+
+    # Корректная остановка задач при выключении сервера
+    bot_task.cancel()
+    keep_alive_task.cancel()
+    digest_task.cancel()
+
+
+app = FastAPI(title="Aura OS Royal Gold API", lifespan=lifespan)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
@@ -663,32 +705,11 @@ async def run_bot():
     await dp.start_polling(bot, handle_signals=False)
 
 # --- АСИНХРОННЫЙ СТАРТ ПОСЛЕ ПОДНЯТИЯ ПОРТА ---
+
 @app.on_event("startup")
 async def on_startup():
     try:
         with engine.connect() as conn:
             conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS currency VARCHAR DEFAULT 'AMD';"))
-            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS language VARCHAR DEFAULT 'ru';"))
-            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR;"))
-            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name VARCHAR;"))
-            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE;"))
-            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_blocked BOOLEAN DEFAULT FALSE;"))
-            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_premium BOOLEAN DEFAULT FALSE;"))
-            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS bot_active BOOLEAN DEFAULT TRUE;"))
-            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;"))
-            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;"))
-            
-            conn.execute(text("ALTER TABLE records ADD COLUMN IF NOT EXISTS type VARCHAR DEFAULT 'expense';"))
-            conn.execute(text("ALTER TABLE records ADD COLUMN IF NOT EXISTS currency VARCHAR DEFAULT 'AMD';"))
-            
-            conn.execute(text(f"UPDATE users SET is_admin = TRUE WHERE telegram_id = {ADMIN_TELEGRAM_ID};"))
-            conn.commit()
-            print("Database schema successfully migrated!")
-    except Exception as e:
-        print(f"Migration notice: {e}")
-
-    Base.metadata.create_all(bind=engine)
-
-    asyncio.create_task(run_bot())
-    asyncio.create_task(keep_alive())
-    asyncio.create_task(daily_digest_scheduler())
+            ...
+            ... (УДАЛИ ВСЁ ДО САМОГО КОНЦА ФАЙЛА)
