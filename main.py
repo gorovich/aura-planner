@@ -43,6 +43,12 @@ bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 recognizer = sr.Recognizer()
 
+# --- HEALTH CHECK ДЛЯ МГНОВЕННОГО ДЕПЛОЯ RENDER ---
+@app.get("/healthz")
+@app.get("/ping")
+async def health_check():
+    return {"status": "ok", "online": True}
+
 # --- КУРСЫ ВАЛЮТ ---
 RATES_TO_USD = {
     "USD": 1.0,
@@ -251,10 +257,6 @@ async def read_index():
         with open(index_file, "r", encoding="utf-8") as f:
             return f.read()
     return HTMLResponse(content="<h1>Index file not found</h1>", status_code=404)
-
-@app.get("/ping")
-async def ping():
-    return {"status": "alive"}
 
 @app.get("/api/user/{telegram_id}")
 def get_user_info(
@@ -656,8 +658,13 @@ async def keep_alive():
                 pass
             await asyncio.sleep(600)
 
-# --- БЫСТРЫЙ И АСИНХРОННЫЙ СТАРТ ---
-async def init_db_async():
+async def run_bot():
+    await asyncio.sleep(3)
+    await dp.start_polling(bot, handle_signals=False)
+
+# --- АСИНХРОННЫЙ СТАРТ ПОСЛЕ ПОДНЯТИЯ ПОРТА ---
+@app.on_event("startup")
+async def on_startup():
     try:
         with engine.connect() as conn:
             conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS currency VARCHAR DEFAULT 'AMD';"))
@@ -682,10 +689,6 @@ async def init_db_async():
 
     Base.metadata.create_all(bind=engine)
 
-@app.on_event("startup")
-async def on_startup():
-    # Открываем веб-сервер немедленно, а инициализацию БД и бота запускаем асинхронно
-    asyncio.create_task(init_db_async())
-    asyncio.create_task(dp.start_polling(bot, handle_signals=False))
+    asyncio.create_task(run_bot())
     asyncio.create_task(keep_alive())
     asyncio.create_task(daily_digest_scheduler())
