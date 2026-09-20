@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, Float, DateTime, ForeignKey, BigInteger
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from database import Base
@@ -7,24 +7,22 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
-    telegram_id = Column(BigInteger, unique=True, index=True, nullable=False)
+    telegram_id = Column(Integer, unique=True, index=True)
     language = Column(String, default="ru")
-    is_premium = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    currency = Column(String, default="AMD")  # AMD, USD, RUB
 
-    records = relationship("Record", back_populates="user", cascade="all, delete-orphan")
+    records = relationship("Record", back_populates="owner")
 
 class Record(Base):
     __tablename__ = "records"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    category = Column(String, nullable=False)  # task, finance, habit, note
-    title = Column(String, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    category = Column(String, default="task")  # task, finance
+    type = Column(String, default="expense")   # expense, income
+    title = Column(String)
     amount = Column(Float, default=0.0)
-    currency = Column(String, default="$")
-    is_completed = Column(Boolean, default=False)
-    streak = Column(Integer, default=0)
+    currency = Column(String, default="AMD")
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    user = relationship("User", back_populates="records")
+    owner = relationship("User", back_populates="records")
