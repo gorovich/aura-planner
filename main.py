@@ -26,6 +26,7 @@ from aiogram.types import WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton
 try:
     with engine.connect() as conn:
         conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS currency VARCHAR DEFAULT 'AMD';"))
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS language VARCHAR DEFAULT 'ru';"))
         conn.execute(text("ALTER TABLE records ADD COLUMN IF NOT EXISTS type VARCHAR DEFAULT 'expense';"))
         conn.execute(text("ALTER TABLE records ADD COLUMN IF NOT EXISTS currency VARCHAR DEFAULT 'AMD';"))
         conn.commit()
@@ -95,7 +96,8 @@ def recognize_speech_free(audio_bytes: bytes) -> str:
 
 class UserSettings(BaseModel):
     telegram_id: int
-    currency: str
+    currency: Optional[str] = None
+    language: Optional[str] = None
 
 class RecordCreate(BaseModel):
     telegram_id: int
@@ -104,11 +106,11 @@ class RecordCreate(BaseModel):
 class ShortcutPayload(BaseModel):
     text: str
 
-# --- МОЩНЫЙ МУЛЬТИЯЗЫЧНЫЙ ПАРСЕР ЧИСЕЛ И ВАЛЮТ ---
+# --- ПАРСЕР ЧИСЕЛ И ВАЛЮТ ---
 def parse_and_save(telegram_id: int, text: str, db: Session):
     user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
     if not user:
-        user = models.User(telegram_id=telegram_id, currency="AMD")
+        user = models.User(telegram_id=telegram_id, currency="AMD", language="ru")
         db.add(user)
         db.commit()
 
@@ -119,7 +121,6 @@ def parse_and_save(telegram_id: int, text: str, db: Session):
     detected_currency = None
     text_lower = text.lower()
 
-    # 1. Поиск валюты
     if any(k in text_lower for k in ["доллар", "dollar", "dolar", "$", "դոլար"]):
         detected_currency = "USD"
     elif any(k in text_lower for k in ["рубл", "руб", "rub", "ռուբլի"]):
@@ -129,7 +130,6 @@ def parse_and_save(telegram_id: int, text: str, db: Session):
     else:
         detected_currency = base_currency
 
-    # 2. Выделение чисел (цифры + пропись)
     normalized_text = re.sub(r'(\d+)[\.,\s](\d{3})\b', r'\1\2', text_lower)
     numbers = re.findall(r'\d+(?:\.\d+)?', normalized_text)
     
@@ -142,7 +142,6 @@ def parse_and_save(telegram_id: int, text: str, db: Session):
             if amount < 1000:
                 amount *= 1000
     else:
-        # Парсинг слов-чисел (Armenian, Russian, English)
         units = {
             "մեկ": 1, "մեկը": 1, "երկու": 2, "երեք": 3, "չորս": 4, "հինգ": 5,
             "վեց": 6, "յոթ": 7, "ութ": 8, "ինը": 9, "ինն": 9,
@@ -185,7 +184,6 @@ def parse_and_save(telegram_id: int, text: str, db: Session):
         total += curr_val
         amount = float(total)
 
-    # 3. Триггеры категорий
     income_triggers = [
         "зарплат", "получк", "аванс", "преми", "калым", "доход", "получил", "перевод", "прибыль", 
         "пополнен", "продаж", "дивиденд", "кэшбэк", "кешбек", "стейкинг", "крипт", "процент", "подарок", "фриланс",
@@ -207,7 +205,6 @@ def parse_and_save(telegram_id: int, text: str, db: Session):
         category = "finance"
         rec_type = "expense"
 
-    # 4. Конвертация
     if category == "finance" and amount > 0:
         amount = convert_currency(amount, detected_currency, base_currency)
 
@@ -242,19 +239,22 @@ async def ping():
 def get_user_info(telegram_id: int, db: Session = Depends(get_db)):
     user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
     if not user:
-        user = models.User(telegram_id=telegram_id, currency="AMD")
+        user = models.User(telegram_id=telegram_id, currency="AMD", language="ru")
         db.add(user)
         db.commit()
         db.refresh(user)
-    return {"currency": user.currency, "language": user.language}
+    return {"currency": user.currency, "language": user.language or "ru"}
 
 @app.post("/api/user/settings")
 def update_user_settings(data: UserSettings, db: Session = Depends(get_db)):
     user = db.query(models.User).filter(models.User.telegram_id == data.telegram_id).first()
     if user:
-        user.currency = data.currency
+        if data.currency:
+            user.currency = data.currency
+        if data.language:
+            user.language = data.language
         db.commit()
-    return {"status": "ok", "currency": data.currency}
+    return {"status": "ok", "currency": user.currency, "language": user.language}
 
 @app.get("/api/records/{telegram_id}")
 def get_records(telegram_id: int, db: Session = Depends(get_db)):
