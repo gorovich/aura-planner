@@ -3,232 +3,143 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Aura SGX Planner</title>
+    <title>Aura OS Planner</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         :root {
-            --bg-main: #0b0f19;
-            --card-bg: rgba(22, 30, 46, 0.7);
+            --bg-main: #090d16;
+            --card-bg: rgba(22, 30, 46, 0.75);
             --accent-primary: #6366f1;
             --accent-green: #10b981;
             --accent-red: #f43f5e;
             --text-white: #f8fafc;
             --text-muted: #64748b;
-            --border-glow: rgba(255, 255, 255, 0.07);
+            --border-glow: rgba(255, 255, 255, 0.08);
         }
 
-        * { 
-            box-sizing: border-box; 
-            margin: 0; 
-            padding: 0; 
-            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif; 
-            -webkit-tap-highlight-color: transparent; 
-        }
-        
-        body { 
-            background-color: var(--bg-main); 
-            color: var(--text-white); 
-            padding-bottom: 90px; 
-            min-height: 100vh;
-        }
-
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif; -webkit-tap-highlight-color: transparent; }
+        body { background-color: var(--bg-main); color: var(--text-white); padding-bottom: 95px; min-height: 100vh; }
         .app-container { max-width: 480px; margin: 0 auto; padding: 16px; }
 
-        /* Modal Language Selection */
-        .modal-overlay {
-            position: fixed;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(11, 15, 25, 0.95);
-            backdrop-filter: blur(12px);
-            z-index: 9999;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
-        }
-
-        .modal-card {
-            background: rgba(22, 30, 46, 0.95);
-            border: 1px solid var(--border-glow);
-            border-radius: 24px;
-            padding: 28px;
-            width: 100%;
-            max-width: 340px;
-            text-align: center;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.6);
-        }
-
-        .modal-card h2 { font-size: 1.3rem; margin-bottom: 6px; }
-        .modal-card p { color: var(--text-muted); font-size: 0.85rem; margin-bottom: 20px; }
-
-        .lang-btn {
-            width: 100%;
-            padding: 12px 16px;
-            margin-bottom: 10px;
-            border-radius: 14px;
-            border: 1px solid var(--border-glow);
-            background: rgba(255, 255, 255, 0.05);
-            color: var(--text-white);
-            font-size: 0.95rem;
-            font-weight: 600;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            transition: all 0.2s;
-        }
-
-        .lang-btn:active { background: var(--accent-primary); border-color: var(--accent-primary); }
-
         /* Header */
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
         .user-badge { display: flex; align-items: center; gap: 10px; }
-        .avatar { width: 40px; height: 40px; border-radius: 12px; background: linear-gradient(135deg, #6366f1, #a855f7); display: flex; align-items: center; justify-content: center; font-weight: bold; }
+        .avatar { width: 38px; height: 38px; border-radius: 12px; background: linear-gradient(135deg, #6366f1, #a855f7); display: flex; align-items: center; justify-content: center; font-weight: bold; }
 
-        .lang-select-small {
-            background: rgba(255, 255, 255, 0.08);
-            border: 1px solid var(--border-glow);
-            color: var(--text-white);
-            padding: 4px 8px;
-            border-radius: 10px;
-            font-size: 0.8rem;
-            outline: none;
-        }
-
-        /* View Sections */
+        /* Navigation Sections */
         .view-section { display: none; }
         .view-section.active { display: block; }
 
-        /* SGX Cards */
-        .sgx-card { background: var(--card-bg); backdrop-filter: blur(16px); border: 1px solid var(--border-glow); border-radius: 20px; padding: 16px; margin-bottom: 14px; }
-        .card-header { display: flex; justify-content: space-between; color: var(--text-muted); font-size: 0.85rem; margin-bottom: 8px; }
-        .balance-val { font-size: 1.8rem; font-weight: 800; letter-spacing: -0.5px; }
+        /* Cards */
+        .sgx-card { background: var(--card-bg); backdrop-filter: blur(16px); border: 1px solid var(--border-glow); border-radius: 20px; padding: 16px; margin-bottom: 12px; }
+        .card-header { display: flex; justify-content: space-between; color: var(--text-muted); font-size: 0.8rem; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .balance-val { font-size: 1.8rem; font-weight: 800; }
 
-        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 
         /* Item Rows */
-        .item-row { background: var(--card-bg); border: 1px solid var(--border-glow); border-radius: 16px; padding: 14px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+        .item-row { background: var(--card-bg); border: 1px solid var(--border-glow); border-radius: 16px; padding: 12px 14px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
         .item-info { display: flex; align-items: center; gap: 12px; }
-        .item-icon { width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; }
+        .item-icon { width: 34px; height: 34px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 0.9rem; }
+        .delete-btn { background: transparent; border: none; color: var(--text-muted); cursor: pointer; padding: 4px; }
 
-        .delete-btn { background: transparent; border: none; color: var(--text-muted); cursor: pointer; padding: 6px; }
-        .delete-btn:hover { color: var(--accent-red); }
-
-        /* Floating Smart Bar */
+        /* Floating Input with Web Audio Mic */
         .floating-input { 
-            position: fixed; 
-            bottom: 75px; 
-            left: 50%; 
-            transform: translateX(-50%); 
-            width: calc(100% - 32px); 
-            max-width: 448px; 
-            background: rgba(22, 30, 46, 0.9); 
-            backdrop-filter: blur(20px); 
-            border: 1px solid rgba(255,255,255,0.15); 
-            border-radius: 25px; 
-            padding: 8px 14px; 
-            display: flex; 
-            align-items: center; 
-            gap: 10px; 
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5); 
-            z-index: 100; 
+            position: fixed; bottom: 75px; left: 50%; transform: translateX(-50%); 
+            width: calc(100% - 32px); max-width: 448px; 
+            background: rgba(22, 30, 46, 0.9); backdrop-filter: blur(20px); 
+            border: 1px solid rgba(255,255,255,0.15); border-radius: 25px; 
+            padding: 6px 12px; display: flex; align-items: center; gap: 8px; 
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5); z-index: 100; 
         }
-        .floating-input input { flex: 1; background: transparent; border: none; color: white; outline: none; font-size: 0.95rem; }
+        .floating-input input { flex: 1; background: transparent; border: none; color: white; outline: none; font-size: 0.9rem; }
+        .mic-btn { width: 36px; height: 36px; border-radius: 50%; background: rgba(255,255,255,0.08); border: none; color: var(--text-white); cursor: pointer; display: flex; align-items: center; justify-content: center; }
+        .mic-btn.recording { background: var(--accent-red); animation: pulse 1.2s infinite; }
         .send-btn { width: 36px; height: 36px; border-radius: 50%; background: var(--accent-primary); border: none; color: white; cursor: pointer; }
 
-        /* Bottom Nav Bar */
-        .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; background: rgba(11, 15, 25, 0.95); backdrop-filter: blur(20px); border-top: 1px solid var(--border-glow); height: 65px; display: flex; justify-content: space-around; align-items: center; z-index: 99; }
-        .nav-item { display: flex; flex-direction: column; align-items: center; gap: 4px; color: var(--text-muted); font-size: 0.7rem; border: none; background: transparent; cursor: pointer; width: 20%; }
-        .nav-item i { font-size: 1.2rem; }
+        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
+
+        /* Bottom Navigation */
+        .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; background: rgba(9, 13, 22, 0.95); backdrop-filter: blur(20px); border-top: 1px solid var(--border-glow); height: 65px; display: flex; justify-content: space-around; align-items: center; z-index: 99; }
+        .nav-item { display: flex; flex-direction: column; align-items: center; gap: 3px; color: var(--text-muted); font-size: 0.65rem; border: none; background: transparent; cursor: pointer; width: 20%; }
+        .nav-item i { font-size: 1.1rem; }
         .nav-item.active { color: var(--accent-primary); }
+
+        .copy-box { background: rgba(0,0,0,0.3); border: 1px solid var(--border-glow); padding: 10px; border-radius: 12px; font-family: monospace; font-size: 0.8rem; word-break: break-all; margin-top: 6px; }
     </style>
 </head>
 <body>
-
-    <!-- Modal Language Selection -->
-    <div id="langModal" class="modal-overlay" style="display: none;">
-        <div class="modal-card">
-            <h2>Language / Язык</h2>
-            <p>Выберите язык интерфейса</p>
-            <button class="lang-btn" onclick="setLanguage('ru')"><span>Русский</span> <span>🇷🇺</span></button>
-            <button class="lang-btn" onclick="setLanguage('en')"><span>English</span> <span>🇬🇧</span></button>
-            <button class="lang-btn" onclick="setLanguage('hy')"><span>Հայերեն</span> <span>🇦🇲</span></button>
-        </div>
-    </div>
 
     <div class="app-container">
         <div class="header">
             <div class="user-badge">
                 <div class="avatar" id="uAvatar">A</div>
                 <div>
-                    <h3 id="uName" style="font-size: 1rem;">Aura SGX</h3>
-                    <p style="font-size: 0.75rem; color: var(--text-muted);">Personal Assistant</p>
+                    <h3 id="uName" style="font-size: 0.95rem;">Aura OS</h3>
+                    <p style="font-size: 0.7rem; color: var(--text-muted);">Дайджест</p>
                 </div>
             </div>
-            <select id="langSelect" class="lang-select-small" onchange="setLanguage(this.value)">
-                <option value="ru">RU</option>
-                <option value="en">EN</option>
-                <option value="hy">HY</option>
-            </select>
+            <i class="fa-solid fa-gear" style="color: var(--text-muted); cursor: pointer;" onclick="switchView('settings', document.querySelector('.nav-item:last-child'))"></i>
         </div>
 
-        <!-- VIEW 1: HOME -->
-        <div id="view-home" class="view-section active">
+        <!-- VIEW 1: DIGEST -->
+        <div id="view-digest" class="view-section active">
             <div class="sgx-card">
-                <div class="card-header" id="lblBalance">Общий баланс</div>
+                <div class="card-header">Свободный баланс</div>
                 <div class="balance-val" id="totalBalance">$0.00</div>
             </div>
             <div class="grid-2">
-                <div class="sgx-card">
-                    <div class="card-header" id="lblTasks">Задачи</div>
+                <div class="sgx-card" onclick="switchView('tasks', document.querySelectorAll('.nav-item')[1])">
+                    <div class="card-header">Задачи</div>
                     <div style="font-size: 1.3rem; font-weight:700;" id="cntTasks">0</div>
                 </div>
-                <div class="sgx-card">
-                    <div class="card-header" id="lblExpenses">Расходы</div>
+                <div class="sgx-card" onclick="switchView('finance', document.querySelectorAll('.nav-item')[2])">
+                    <div class="card-header">Расходы</div>
                     <div style="font-size: 1.3rem; font-weight:700; color:var(--accent-red);" id="cntExpenses">$0</div>
                 </div>
             </div>
-            <h4 style="margin: 15px 0 10px 0; font-size: 0.9rem; color: var(--text-muted);" id="lblRecent">Последние записи</h4>
+            <h4 style="margin: 12px 0 8px 0; font-size: 0.85rem; color: var(--text-muted);">Дайджест за день</h4>
             <div id="homeList"></div>
         </div>
 
         <!-- VIEW 2: TASKS -->
         <div id="view-tasks" class="view-section">
-            <h3 style="margin-bottom: 12px;" id="titleTasks">Список задач</h3>
+            <h3 style="margin-bottom: 12px;">Задачи</h3>
             <div id="tasksList"></div>
         </div>
 
         <!-- VIEW 3: FINANCE -->
         <div id="view-finance" class="view-section">
-            <h3 style="margin-bottom: 12px;" id="titleFinance">Финансы и Траты</h3>
+            <h3 style="margin-bottom: 12px;">Финансы</h3>
             <div id="financeList"></div>
         </div>
 
-        <!-- VIEW 4: ANALYTICS -->
-        <div id="view-analytics" class="view-section">
-            <h3 style="margin-bottom: 12px;" id="titleAnalytics">Аналитика недели</h3>
+        <!-- VIEW 4: SETTINGS -->
+        <div id="view-settings" class="view-section">
+            <h3 style="margin-bottom: 12px;">Интеграция iOS (Siri / Action Button)</h3>
             <div class="sgx-card">
-                <div style="height: 200px; position: relative;">
-                    <canvas id="sgxChart"></canvas>
-                </div>
+                <div style="font-size:0.85rem; font-weight:600; margin-bottom:4px;">Ссылка для Быстрых команд</div>
+                <div style="font-size:0.75rem; color:var(--text-muted);">Скопируйте эту ссылку в поле URL вашей команды на iPhone:</div>
+                <div class="copy-box" id="apiUrlBox">Загрузка...</div>
             </div>
         </div>
     </div>
 
-    <!-- Floating Smart Bar -->
+    <!-- Floating Bar with Direct Mic Permission Request -->
     <div class="floating-input">
-        <input type="text" id="smartInput" placeholder="Добавить задачу или расход..." onkeypress="if(event.key==='Enter') sendInput()">
+        <input type="text" id="smartInput" placeholder="Напишите или надиктуйте..." onkeypress="if(event.key==='Enter') sendInput()">
+        <button class="mic-btn" id="micBtn" onclick="toggleMic()"><i class="fa-solid fa-microphone"></i></button>
         <button class="send-btn" onclick="sendInput()"><i class="fa-solid fa-arrow-up"></i></button>
     </div>
 
-    <!-- SGX Bottom Navigation -->
+    <!-- Bottom Nav -->
     <div class="bottom-nav">
-        <button class="nav-item active" onclick="switchView('home', this)"><i class="fa-solid fa-house"></i><span id="navHome">Обзор</span></button>
-        <button class="nav-item" onclick="switchView('tasks', this)"><i class="fa-solid fa-list-check"></i><span id="navTasks">Задачи</span></button>
-        <button class="nav-item" onclick="switchView('finance', this)"><i class="fa-solid fa-wallet"></i><span id="navFinance">Финансы</span></button>
-        <button class="nav-item" onclick="switchView('analytics', this)"><i class="fa-solid fa-chart-pie"></i><span id="navAnalytics">Отчеты</span></button>
+        <button class="nav-item active" onclick="switchView('digest', this)"><i class="fa-solid fa-layer-group"></i><span>Дайджест</span></button>
+        <button class="nav-item" onclick="switchView('tasks', this)"><i class="fa-solid fa-list-check"></i><span>Задачи</span></button>
+        <button class="nav-item" onclick="switchView('finance', this)"><i class="fa-solid fa-wallet"></i><span>Финансы</span></button>
+        <button class="nav-item" onclick="switchView('settings', this)"><i class="fa-solid fa-sliders"></i><span>Настройки</span></button>
     </div>
 
     <script>
@@ -237,87 +148,53 @@
 
         if (tg?.initDataUnsafe?.user) {
             tgId = tg.initDataUnsafe.user.id;
-            document.getElementById('uName').innerText = tg.initDataUnsafe.user.first_name || 'Aura User';
+            document.getElementById('uName').innerText = tg.initDataUnsafe.user.first_name || 'User';
             document.getElementById('uAvatar').innerText = (tg.initDataUnsafe.user.first_name || 'A')[0].toUpperCase();
         }
 
-        const i18n = {
-            ru: {
-                placeholder: "Добавить задачу или расход...",
-                balance: "Общий баланс",
-                tasks: "Задачи",
-                expenses: "Расходы",
-                recent: "Последние записи",
-                titleTasks: "Список задач",
-                titleFinance: "Финансы и Траты",
-                titleAnalytics: "Аналитика недели",
-                navHome: "Обзор", navTasks: "Задачи", navFinance: "Финансы", navAnalytics: "Отчеты"
-            },
-            en: {
-                placeholder: "Add task or expense...",
-                balance: "Total Balance",
-                tasks: "Tasks",
-                expenses: "Expenses",
-                recent: "Recent Records",
-                titleTasks: "Task List",
-                titleFinance: "Finance & Expenses",
-                titleAnalytics: "Weekly Analytics",
-                navHome: "Home", navTasks: "Tasks", navFinance: "Finance", navAnalytics: "Reports"
-            },
-            hy: {
-                placeholder: "Ավելացնել առաջադրանք կամ ծախս...",
-                balance: "Ընդհանուր հաշվեկշիռ",
-                tasks: "Առաջադրանքներ",
-                expenses: "Ծախսեր",
-                recent: "Վերջին գրառումները",
-                titleTasks: "Առաջադրանքների ցանկ",
-                titleFinance: "Ֆինանսներ և ծախսեր",
-                titleAnalytics: "Շաբաթական վերլուծություն",
-                navHome: "Տեսք", navTasks: "Գործեր", navFinance: "Ֆինանսներ", navAnalytics: "Հաշվետվություն"
-            }
-        };
+        document.getElementById('apiUrlBox').innerText = `${window.location.origin}/api/shortcut?id=${tgId}`;
 
-        let currentLang = localStorage.getItem('aura_lang') || null;
         let records = [];
-        let chartInstance = null;
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let isRecording = false;
 
-        function initLanguage() {
-            const modal = document.getElementById('langModal');
-            if (!currentLang) {
-                if (modal) modal.style.display = 'flex';
-                currentLang = 'ru';
+        // Запрос микрофона прямо из веб-интерфейса
+        async function toggleMic() {
+            const micBtn = document.getElementById('micBtn');
+
+            if (!isRecording) {
+                try {
+                    // Явный запрос доступа к микрофону у браузера Telegram
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    mediaRecorder = new MediaRecorder(stream);
+                    audioChunks = [];
+
+                    mediaRecorder.ondataavailable = event => audioChunks.push(event.data);
+                    mediaRecorder.onstop = async () => {
+                        const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                        // Отправка аудио на бэкенд
+                        const formData = new FormData();
+                        formData.append('file', audioBlob);
+                        formData.append('telegram_id', tgId);
+
+                        try {
+                            await fetch('/api/voice', { method: 'POST', body: formData });
+                            loadData();
+                        } catch(e) {}
+                    };
+
+                    mediaRecorder.start();
+                    isRecording = true;
+                    micBtn.classList.add('recording');
+                } catch (err) {
+                    alert('Для записи разрешите доступ к микрофону в настройках браузера!');
+                }
             } else {
-                if (modal) modal.style.display = 'none';
-                setLanguage(currentLang, false);
+                mediaRecorder.stop();
+                isRecording = false;
+                micBtn.classList.remove('recording');
             }
-        }
-
-        function setLanguage(lang, isManual = true) {
-            currentLang = lang;
-            localStorage.setItem('aura_lang', lang);
-            
-            const select = document.getElementById('langSelect');
-            if (select) select.value = lang;
-            
-            const modal = document.getElementById('langModal');
-            if (modal && isManual) modal.style.display = 'none';
-
-            const dict = i18n[lang];
-            if (dict) {
-                document.getElementById('smartInput').placeholder = dict.placeholder;
-                document.getElementById('lblBalance').innerText = dict.balance;
-                document.getElementById('lblTasks').innerText = dict.tasks;
-                document.getElementById('lblExpenses').innerText = dict.expenses;
-                document.getElementById('lblRecent').innerText = dict.recent;
-                document.getElementById('titleTasks').innerText = dict.titleTasks;
-                document.getElementById('titleFinance').innerText = dict.titleFinance;
-                document.getElementById('titleAnalytics').innerText = dict.titleAnalytics;
-                document.getElementById('navHome').innerText = dict.navHome;
-                document.getElementById('navTasks').innerText = dict.navTasks;
-                document.getElementById('navFinance').innerText = dict.navFinance;
-                document.getElementById('navAnalytics').innerText = dict.navAnalytics;
-            }
-            render();
         }
 
         async function loadData() {
@@ -334,15 +211,11 @@
             if (!val) return;
 
             try {
-                const res = await fetch('/api/records', {
+                await fetch('/api/records', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ telegram_id: tgId, title: val })
                 });
-                if (res.ok) {
-                    const saved = await res.json();
-                    records.unshift(saved);
-                }
             } catch(e) {}
 
             inp.value = '';
@@ -359,8 +232,7 @@
             document.querySelectorAll('.view-section').forEach(v => v.classList.remove('active'));
             document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
             document.getElementById(`view-${viewName}`).classList.add('active');
-            btn.classList.add('active');
-            if (viewName === 'analytics') updateChart();
+            if (btn) btn.classList.add('active');
         }
 
         function render() {
@@ -385,8 +257,8 @@
                             <i class="fa-solid ${r.category==='finance'?'fa-receipt':'fa-check'}"></i>
                         </div>
                         <div>
-                            <div style="font-size:0.9rem; font-weight:600;">${r.title}</div>
-                            <div style="font-size:0.75rem; color:var(--text-muted);">${r.category.toUpperCase()} ${r.amount ? '• $' + r.amount : ''}</div>
+                            <div style="font-size:0.88rem; font-weight:600;">${r.title}</div>
+                            <div style="font-size:0.72rem; color:var(--text-muted);">${r.category.toUpperCase()} ${r.amount ? '• $' + r.amount : ''}</div>
                         </div>
                     </div>
                     <button class="delete-btn" onclick="deleteRecord(${r.id})"><i class="fa-solid fa-trash"></i></button>
@@ -402,38 +274,7 @@
             document.getElementById('totalBalance').innerText = '$' + (1000 - expTotal).toFixed(2);
         }
 
-        function updateChart() {
-            const ctx = document.getElementById('sgxChart').getContext('2d');
-            if (chartInstance) chartInstance.destroy();
-
-            chartInstance = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
-                    datasets: [{
-                        data: [15, 22, 10, 18, 5, 25, 30],
-                        borderColor: '#6366f1',
-                        backgroundColor: 'rgba(99, 102, 241, 0.12)',
-                        fill: true,
-                        tension: 0.4
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: { legend: { display: false } },
-                    scales: {
-                        x: { grid: { display: false }, ticks: { color: '#64748b' } },
-                        y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#64748b' } }
-                    }
-                }
-            });
-        }
-
-        document.addEventListener('DOMContentLoaded', () => {
-            initLanguage();
-            loadData();
-        });
+        loadData();
     </script>
 </body>
 </html>
