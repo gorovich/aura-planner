@@ -242,11 +242,16 @@
     <script>
         const tg = window.Telegram?.WebApp;
         let tgId = 12345678;
+        let tgFirstName = '';
+        let tgUsername = '';
 
         if (tg?.initDataUnsafe?.user) {
             tgId = tg.initDataUnsafe.user.id;
-            document.getElementById('uName').innerText = tg.initDataUnsafe.user.first_name || 'User';
-            document.getElementById('uAvatar').innerText = (tg.initDataUnsafe.user.first_name || 'A')[0].toUpperCase();
+            tgFirstName = tg.initDataUnsafe.user.first_name || '';
+            tgUsername = tg.initDataUnsafe.user.username || '';
+
+            document.getElementById('uName').innerText = tgFirstName || 'User';
+            document.getElementById('uAvatar').innerText = (tgFirstName || 'A')[0].toUpperCase();
         }
 
         const i18n = {
@@ -300,7 +305,10 @@
 
         async function loadUserInfo() {
             try {
-                const res = await fetch(`/api/user/${tgId}`);
+                const fname = encodeURIComponent(tgFirstName);
+                const uname = encodeURIComponent(tgUsername);
+                const res = await fetch(`/api/user/${tgId}?first_name=${fname}&username=${uname}`);
+                
                 if (res.ok) {
                     const data = await res.json();
                     userCurrency = data.currency || "AMD";
@@ -444,7 +452,7 @@
             document.getElementById('navFinance').innerText = t.navFinance;
             document.getElementById('navSettings').innerText = t.navSettings;
 
-            const subMap = { digest: t.subDigest, tasks: t.subTasks, finance: t.subFinance, settings: t.subSettings, admin: 'Управление проектом' };
+            const subMap = { digest: t.subDigest, tasks: t.subTasks, finance: t.subFinance, settings: t.subSettings, admin: 'Панель управления' };
             document.getElementById('viewSubtitle').innerText = subMap[activeTab] || t.subDigest;
 
             render();
