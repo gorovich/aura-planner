@@ -682,8 +682,16 @@ async def keep_alive():
                 pass
             await asyncio.sleep(600)
 
+# --- ЗАПУСК СЕРВЕРА С ЯВНЫМ ПОРТОМ ДЛЯ RENDER ---
+
 @app.on_event("startup")
 async def on_startup():
-    asyncio.create_task(dp.start_polling(bot))
+    # Запускаем поллинг бота и фоновые задачи без блокировки порта
+    asyncio.create_task(dp.start_polling(bot, handle_signals=False))
     asyncio.create_task(keep_alive())
     asyncio.create_task(daily_digest_scheduler())
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.getenv("PORT", 10000))
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False)
