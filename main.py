@@ -1,5 +1,6 @@
 import os
 import re
+import io
 import asyncio
 from typing import Optional, List
 from pydantic import BaseModel
@@ -10,6 +11,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
+import speech_recognition as sr
+from pydub import AudioSegment
+
 from database import engine, Base, get_db
 import models
 
@@ -17,7 +21,6 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton
 
-# Инициализация таблиц Базы Данных
 Base.metadata.create_all(bind=engine)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
@@ -36,7 +39,45 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# --- СХЕМЫ ДАННЫХ (PYDANTIC) ---
+# Инициализация бесплатного распознавателя речи
+recognizer = sr.Recognizer()
+
+# --- БЕСПЛАТНАЯ ФУНКЦИЯ РАСПОЗНАВАНИЯ РЕЧИ (БЕЗ OPENAI) ---
+def recognize_speech_free(audio_bytes: bytes) -> str:
+    try:
+        # Конвертируем входящее аудио из OGG/WEBM/ANY в WAV
+        audio_stream = io.BytesIO(audio_bytes)
+        sound = AudioSegment.from_file(audio_stream)
+        
+        wav_stream = io.BytesIO()
+        sound.export(wav_stream, format="wav")
+        wav_stream.seek(0)
+
+        with sr.AudioFile(wav_stream) as source:
+            audio_data = recognizer.record(source)
+            
+            # 1. Пробуем распознать как армянский (hy-AM)
+            try:
+                text_hy = recognizer.recognize_google(audio_data, language="hy-AM")
+                if text_hy and len(text_hy.strip()) > 0:
+                    return text_hy
+            except sr.UnknownValueError:
+                pass
+            
+            # 2. Если не армянский — пробуем русский (ru-RU)
+            try:
+                text_ru = recognizer.recognize_google(audio_data, language="ru-RU")
+                if text_ru and len(text_ru.strip()) > 0:
+                    return text_ru
+            except sr.UnknownValueError:
+                pass
+
+    except Exception as e:
+        print(f"Error converting/recognizing audio: {e}")
+        
+    return ""
+
+# --- SCHEMAS ---
 class UserAuth(BaseModel):
     telegram_id: int
     language: Optional[str] = "ru"
@@ -50,7 +91,7 @@ class RecordCreate(BaseModel):
 class ShortcutPayload(BaseModel):
     text: str
 
-# --- УМНЫЙ ПАРСЕР ЗАПИСЕЙ ---
+# --- PARSER ---
 def parse_and_save(telegram_id: int, text: str, db: Session):
     user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
     if not user:
@@ -62,7 +103,6 @@ def parse_and_save(telegram_id: int, text: str, db: Session):
     amount = 0.0
     text_lower = text.lower()
 
-    # Числительные прописью (RU / HY)
     num_words = {
         "հիսուն": 50, "տաս": 10, "քսան": 20, "երեսուն": 30, "քառասուն": 40,
         "հարյուր": 100, "հազար": 1000, "пятьдесят": 50, "сто": 100, "тысяча": 1000
@@ -77,7 +117,6 @@ def parse_and_save(telegram_id: int, text: str, db: Session):
                 amount = float(val)
                 break
 
-    # Ключевые слова расходов (RU, EN, HY)
     finance_keywords = [
         "руб", "$", "драм", "֏", "купил", "потратил", "цена", "стоил", "кофе", "кофե",
         "dollar", "dolar", "դոլար", "դրամ", "ծախս", "գնեցի", "կոֆե", "սուրճ", "ստացա"
@@ -100,7 +139,7 @@ def parse_and_save(telegram_id: int, text: str, db: Session):
     db.refresh(record)
     return record
 
-# --- REST API МАРШРУТЫ ---
+# --- REST API ---
 
 @app.get("/", response_class=HTMLResponse)
 async def read_index():
@@ -141,22 +180,29 @@ def delete_record(record_id: int, db: Session = Depends(get_db)):
     db.commit()
     return {"status": "deleted"}
 
-# Прием веб-записей с микрофона из Mini App
+# Прием и бесплатная расшифровка голосовых записей с веб-микрофона
 @app.post("/api/voice")
 async def handle_web_voice(
     telegram_id: int = Form(...),
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
-    rec = parse_and_save(telegram_id, "Голосовая заметка", db)
+    audio_bytes = await file.read()
+    recognized_text = recognize_speech_free(audio_bytes)
+    
+    if not recognized_text:
+        recognized_text = "Голосовая запись"
+
+    rec = parse_and_save(telegram_id, recognized_text, db)
     return {
         "status": "ok", 
         "id": rec.id, 
         "title": rec.title, 
-        "category": rec.category
+        "category": rec.category,
+        "amount": rec.amount
     }
 
-# Входной эндпоинт для Быстрых команд iOS (Siri)
+# Вход для Быстрых команд iOS (Siri)
 @app.post("/api/shortcut")
 def handle_shortcut(id: int, payload: ShortcutPayload, db: Session = Depends(get_db)):
     record = parse_and_save(id, payload.text, db)
@@ -167,7 +213,7 @@ def handle_shortcut(id: int, payload: ShortcutPayload, db: Session = Depends(get
         "text": record.title
     }
 
-# --- ХЭНДЛЕРЫ TELEGRAM БОТА ---
+# --- БОТ ХЭНДЛЕРЫ ---
 
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
@@ -176,8 +222,7 @@ async def cmd_start(message: types.Message):
     ])
     await message.answer(
         f"Привет, {message.from_user.first_name}! 👋\n\n"
-        f"🎙 Напиши или надиктуй голосовое сообщение прямо сюда, и я сразу занесу его в планер!\n\n"
-        f"Для настройки голосового ввода через Siri на iPhone напиши команду /shortcut.",
+        f"🎙 Отправляй мне текстовые или голосовые сообщения прямо сюда!",
         reply_markup=markup
     )
 
@@ -188,9 +233,8 @@ async def cmd_shortcut(message: types.Message):
 
     await message.answer(
         f"🎙 **Голосовой ввод через Siri на iPhone**\n\n"
-        f"Ваша персональная ссылка для Быстрой команды iOS:\n\n"
-        f"`{user_api_url}`\n\n"
-        f"Скопируйте её и вставьте в поле URL при создании Быстрой команды!",
+        f"Ваша ссылка для Быстрой команды iOS:\n\n"
+        f"`{user_api_url}`",
         parse_mode="Markdown"
     )
 
@@ -201,15 +245,23 @@ async def handle_text_message(message: types.Message):
     emoji = "💸" if rec.category == "finance" else "✅"
     await message.answer(f"{emoji} Записано в **{rec.category.upper()}**: {rec.title}", parse_mode="Markdown")
 
+# Бесплатная расшифровка голосовых сообщений из чата Telegram
 @dp.message(F.voice)
 async def handle_voice_message(message: types.Message):
     db = next(get_db())
-    text_content = message.caption if message.caption else "Голосовая запись"
-    rec = parse_and_save(message.from_user.id, text_content, db)
-    emoji = "💸" if rec.category == "finance" else "✅"
-    await message.answer(f"🎙 {emoji} Сохранено в **{rec.category.upper()}**!", parse_mode="Markdown")
+    
+    file_info = await bot.get_file(message.voice.file_id)
+    file_bytes = await bot.download_file(file_info.file_path)
+    
+    recognized_text = recognize_speech_free(file_bytes.read())
+    if not recognized_text:
+        recognized_text = "Голосовая запись"
 
-# --- SELF-PING SCRIPT (Защита от засыпания Render 24/7) ---
+    rec = parse_and_save(message.from_user.id, recognized_text, db)
+    emoji = "💸" if rec.category == "finance" else "✅"
+    await message.answer(f"🎙 {emoji} **Распознано:** «{rec.title}»\nЗаписано в **{rec.category.upper()}**!", parse_mode="Markdown")
+
+# --- KEEP ALIVE ---
 async def keep_alive():
     await asyncio.sleep(30)
     ping_url = f"{WEBAPP_URL}/ping"
@@ -221,8 +273,6 @@ async def keep_alive():
                 print(f"Self-ping successful: status {response.status_code}")
             except Exception as e:
                 print(f"Self-ping failed: {e}")
-            
-            # Пингуем каждые 10 минут (600 сек)
             await asyncio.sleep(600)
 
 @app.on_event("startup")
