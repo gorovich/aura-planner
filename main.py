@@ -186,7 +186,7 @@ def parse_and_save(telegram_id: int, text: str, db: Session):
         category=category,
         type=rec_type,
         title=text,
-        amount=amount,
+        amount=round(amount, 2),
         currency=base_currency
     )
     db.add(record)
@@ -307,7 +307,8 @@ async def handle_text_message(message: types.Message):
     db = next(get_db())
     rec = parse_and_save(message.from_user.id, message.text, db)
     emoji = "📈" if rec.type == "income" else ("💸" if rec.category == "finance" else "✅")
-    await message.answer(f"{emoji} Записано: **{rec.title}** ({rec.amount} {rec.currency})", parse_mode="Markdown")
+    fmt_amount = f"{rec.amount:.2f}"
+    await message.answer(f"{emoji} Записано: **{rec.title}** ({fmt_amount} {rec.currency})", parse_mode="Markdown")
 
 @dp.message(F.voice)
 async def handle_voice_message(message: types.Message):
@@ -321,9 +322,10 @@ async def handle_voice_message(message: types.Message):
 
     rec = parse_and_save(message.from_user.id, recognized_text, db)
     emoji = "📈" if rec.type == "income" else ("💸" if rec.category == "finance" else "✅")
-    await message.answer(f"🎙 {emoji} **Распознано:** «{rec.title}»\nСумма: **{rec.amount} {rec.currency}**", parse_mode="Markdown")
+    fmt_amount = f"{rec.amount:.2f}"
+    await message.answer(f"🎙 {emoji} **Распознано:** «{rec.title}»\nСумма: **{fmt_amount} {rec.currency}**", parse_mode="Markdown")
 
-# --- KEEP ALIVE (Защита от засыпания Render) ---
+# --- KEEP ALIVE ---
 async def keep_alive():
     await asyncio.sleep(30)
     ping_url = f"{WEBAPP_URL}/ping"
