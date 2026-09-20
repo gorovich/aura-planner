@@ -104,13 +104,13 @@ class RecordCreate(BaseModel):
 class ShortcutPayload(BaseModel):
     text: str
 
-# --- ОГРОМНЫЙ СЛОВАРЬ ТРИГГЕРОВ (RU / HY / EN) ---
+# --- СЛОВАРЬ ТРИГГЕРОВ С РАСШИРЕННЫМ АРМЯНСКИМ ЯЗЫКОМ ---
 INCOME_TRIGGERS = [
     # RU
     "зарплат", "получк", "аванс", "преми", "калым", "доход", "получил", "перевод", "прибыль", 
-    "пополнен", "продаж", "дивиденд", "кэшбэк", "кешбек", "стейкинг", "крипт", "процент", "подарок", "наследст", "фриланс",
-    # HY
-    "ստացա", "եկամուտ", "աշխատավարձ", "փոխանցում", "նվեր", "վաճառք", "շահույթ", "կանխավճար",
+    "пополнен", "продаж", "дивиденд", "кэшбэк", "кешбек", "стейкинг", "крипт", "процент", "подарок", "фриланс",
+    # HY (Расширенный армянский)
+    "ստացա", "եկամուտ", "աշխատավարձ", "փոխանցում", "նվեր", "վաճառք", "շահույթ", "կանխավճար", "մուտք", "ավելացավ", "եկամուտներ",
     # EN
     "salary", "paycheck", "income", "bonus", "profit", "gift", "crypto", "cashback", "dividend", "sale", "freelance"
 ]
@@ -118,7 +118,7 @@ INCOME_TRIGGERS = [
 EXPENSE_TRIGGERS = [
     # RU
     "руб", "$", "драм", "֏", "купил", "потратил", "цена", "стоил", "кофе", "заправк", "бензин", "ремонт", "оплат",
-    "еда", "ужин", "обед", "завтрак", "ресторан", "кафе", "продукты", "такси", "парикмахер", "стрижк", "аренда",
+    "еда", "ужин", "обед", "завтрак", "ресторан", "кафе", "продукты", "такси", "парикмахер", "аренда",
     "коммунал", "связь", "интернет", "аптек", "врач", "bmw", "запчаст", "масло", "сервис", "мойк",
     # HY
     "ծախս", "գնեցի", "սուրճ", "կոֆե", "ինվեստ", "բենզին", "ավտո", "տաքսի", "վարձ", "ուտելիք", "հաց", "դեղ", "սպասարկում",
@@ -140,7 +140,7 @@ def parse_and_save(telegram_id: int, text: str, db: Session):
     detected_currency = None
     text_lower = text.lower()
 
-    # 1. Определение валюты
+    # 1. Детекция валюты
     if any(k in text_lower for k in ["доллар", "dollar", "dolar", "$", "դոլար"]):
         detected_currency = "USD"
     elif any(k in text_lower for k in ["рубл", "руб", "rub", "ռուբլի"]):
@@ -150,20 +150,16 @@ def parse_and_save(telegram_id: int, text: str, db: Session):
     else:
         detected_currency = base_currency
 
-    # 2. Улучшенный парсинг чисел (29.000 / 29,000 / 29000 / 29 тыс)
-    # Нормализуем форматы записи 29.000 или 29 000 в 29000
+    # 2. Точный парсинг чисел (29.000 / 29 000 / 29000 / 29 тыс)
     normalized_text = re.sub(r'(\d+)[\.,\s](\d{3})\b', r'\1\2', text_lower)
-    
     numbers = re.findall(r'\d+(?:\.\d+)?', normalized_text)
     
     if numbers:
         amount = float(numbers[0])
-        # Проверка тысячных приставок ("29 тыс", "29k", "29 հազար")
         if any(k in text_lower for k in ["тыс", "հազար", "k"]):
             if amount < 1000:
                 amount *= 1000
     else:
-        # Словарный парсинг прописью
         words = text_lower.split()
         multiplier = 1
         base_val = 0
@@ -181,7 +177,7 @@ def parse_and_save(telegram_id: int, text: str, db: Session):
         if base_val > 0:
             amount = float(base_val * multiplier)
 
-    # 3. Категоризация по словарю
+    # 3. Категоризация
     if any(k in text_lower for k in INCOME_TRIGGERS):
         category = "finance"
         rec_type = "income"
@@ -189,7 +185,7 @@ def parse_and_save(telegram_id: int, text: str, db: Session):
         category = "finance"
         rec_type = "expense"
 
-    # 4. Конвертация валют в основную валюту
+    # 4. Конвертация валют
     if category == "finance" and amount > 0:
         amount = convert_currency(amount, detected_currency, base_currency)
 
