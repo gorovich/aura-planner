@@ -133,8 +133,9 @@ class AdminBroadcast(BaseModel):
 # --- ПАРСЕР И РЕГИСТРАЦИЯ ЮЗЕРА ---
 def parse_and_save(telegram_id: int, text: str, db: Session, first_name: str = None, username: str = None):
     user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
+    is_adm = (telegram_id == ADMIN_TELEGRAM_ID)
+    
     if not user:
-        is_adm = (telegram_id == ADMIN_TELEGRAM_ID)
         user = models.User(
             telegram_id=telegram_id, 
             currency="AMD", 
@@ -149,6 +150,7 @@ def parse_and_save(telegram_id: int, text: str, db: Session, first_name: str = N
         user.last_active_at = datetime.utcnow()
         if first_name: user.first_name = first_name
         if username: user.username = username
+        if is_adm: user.is_admin = True
         db.commit()
 
     if user.is_blocked:
@@ -276,18 +278,32 @@ async def ping():
     return {"status": "alive"}
 
 @app.get("/api/user/{telegram_id}")
-def get_user_info(telegram_id: int, db: Session = Depends(get_db)):
+def get_user_info(
+    telegram_id: int, 
+    first_name: Optional[str] = None, 
+    username: Optional[str] = None, 
+    db: Session = Depends(get_db)
+):
     user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
+    is_adm = (telegram_id == ADMIN_TELEGRAM_ID)
+    
     if not user:
-        is_adm = (telegram_id == ADMIN_TELEGRAM_ID)
-        user = models.User(telegram_id=telegram_id, currency="AMD", language="ru", is_admin=is_adm)
+        user = models.User(
+            telegram_id=telegram_id, 
+            currency="AMD", 
+            language="ru", 
+            is_admin=is_adm,
+            first_name=first_name,
+            username=username
+        )
         db.add(user)
         db.commit()
         db.refresh(user)
     else:
         user.last_active_at = datetime.utcnow()
-        if telegram_id == ADMIN_TELEGRAM_ID and not user.is_admin:
-            user.is_admin = True
+        if first_name and first_name != "undefined": user.first_name = first_name
+        if username and username != "undefined": user.username = username
+        if is_adm and not user.is_admin: user.is_admin = True
         db.commit()
 
     return {
