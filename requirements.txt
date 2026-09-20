@@ -8,3 +8,5 @@ SpeechRecognition>=3.10.0
 pydub>=0.25.1
 httpx>=0.27.0
 python-multipart
+SpeechRecognition>=3.10.0
+pydub>=0.25.1
