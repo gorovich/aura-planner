@@ -3,75 +3,100 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Aura OS Pro</title>
+    <title>Aura OS Royal Gold</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         :root {
-            --bg-dark: #080a0f;
-            --card-glass: rgba(18, 24, 38, 0.75);
-            --card-border: rgba(255, 255, 255, 0.08);
-            --accent-indigo: #6366f1;
-            --accent-green: #10b981;
-            --accent-rose: #f43f5e;
+            --bg-black: #080806;
+            --gold-primary: #d4af37;
+            --gold-light: #fef08a;
+            --gold-glow: rgba(212, 175, 55, 0.22);
+            --card-glass: rgba(22, 19, 14, 0.85);
+            --card-border: rgba(212, 175, 55, 0.18);
+            
+            --emerald-green: #10b981;
+            --emerald-glow: rgba(16, 185, 129, 0.2);
+            --ruby-rose: #f43f5e;
+            
+            --text-gold: #f59e0b;
             --text-main: #f8fafc;
-            --text-sub: #64748b;
+            --text-sub: #8e8770;
         }
 
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif; -webkit-tap-highlight-color: transparent; }
-        body { background-color: var(--bg-dark); color: var(--text-main); padding-bottom: 95px; min-height: 100vh; overflow-x: hidden; }
+        body { background-color: var(--bg-black); color: var(--text-main); padding-bottom: 95px; min-height: 100vh; overflow-x: hidden; }
         .app-container { max-width: 480px; margin: 0 auto; padding: 16px; }
 
-        /* Header */
+        /* Gold Header */
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
         .user-badge { display: flex; align-items: center; gap: 12px; }
-        .avatar { width: 42px; height: 42px; border-radius: 14px; background: linear-gradient(135deg, #6366f1, #a855f7); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 1.1rem; box-shadow: 0 4px 15px rgba(99,102,241,0.3); }
+        .avatar { 
+            width: 42px; height: 42px; border-radius: 14px; 
+            background: linear-gradient(135deg, #f59e0b, #d4af37, #78350f); 
+            display: flex; align-items: center; justify-content: center; 
+            font-weight: 800; font-size: 1.1rem; color: #000;
+            box-shadow: 0 4px 18px var(--gold-glow); 
+        }
 
-        /* Navigation Views */
-        .view-section { display: none; animation: fadeIn 0.25s ease-in-out; }
+        .view-section { display: none; animation: fadeIn 0.22s ease-in-out; }
         .view-section.active { display: block; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 
-        /* SGX Pro Cards */
-        .glass-card { background: var(--card-glass); backdrop-filter: blur(20px); border: 1px solid var(--card-border); border-radius: 22px; padding: 18px; margin-bottom: 14px; box-shadow: 0 8px 32px rgba(0,0,0,0.3); }
-        .card-label { font-size: 0.75rem; color: var(--text-sub); text-transform: uppercase; letter-spacing: 0.8px; font-weight: 600; margin-bottom: 6px; }
-        .balance-hero { font-size: 2.1rem; font-weight: 800; letter-spacing: -0.5px; background: linear-gradient(180deg, #fff, #cbd5e1); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        /* Royal Cards */
+        .glass-card { 
+            background: var(--card-glass); backdrop-filter: blur(20px); 
+            border: 1px solid var(--card-border); border-radius: 22px; 
+            padding: 18px; margin-bottom: 14px; box-shadow: 0 10px 35px rgba(0,0,0,0.6); 
+        }
+        .card-label { font-size: 0.72rem; color: var(--text-sub); text-transform: uppercase; letter-spacing: 1px; font-weight: 700; margin-bottom: 6px; }
+        
+        .balance-hero { 
+            font-size: 2.2rem; font-weight: 900; letter-spacing: -0.5px; 
+            background: linear-gradient(135deg, #fff 30%, #fef08a 70%, #d4af37 100%); 
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent; 
+            text-shadow: 0 0 30px var(--gold-glow);
+        }
 
         .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
-        /* Item Row */
+        /* Subtabs Switcher */
+        .subtabs-container { display: flex; background: rgba(0,0,0,0.6); border: 1px solid var(--card-border); border-radius: 16px; padding: 4px; margin-bottom: 16px; }
+        .subtab-btn { flex: 1; padding: 10px; border: none; background: transparent; color: var(--text-sub); font-weight: 700; font-size: 0.88rem; border-radius: 12px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px; }
+        .subtab-btn.active.inc { background: linear-gradient(135deg, #059669, #10b981); color: white; box-shadow: 0 4px 15px var(--emerald-glow); }
+        .subtab-btn.active.exp { background: linear-gradient(135deg, #e11d48, #f43f5e); color: white; box-shadow: 0 4px 15px rgba(244,63,94,0.3); }
+
+        /* Item Cards with High-Contrast Icons */
         .item-card { background: var(--card-glass); border: 1px solid var(--card-border); border-radius: 18px; padding: 14px 16px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; transition: transform 0.15s; }
         .item-card:active { transform: scale(0.98); }
-        .item-left { display: flex; align-items: center; gap: 12px; }
-        .item-icon { width: 40px; height: 40px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1rem; }
+        .item-left { display: flex; align-items: center; gap: 14px; }
+        .item-icon { width: 42px; height: 42px; border-radius: 13px; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; flex-shrink: 0; }
         .delete-btn { background: transparent; border: none; color: var(--text-sub); cursor: pointer; padding: 6px; transition: color 0.2s; }
-        .delete-btn:hover { color: var(--accent-rose); }
+        .delete-btn:hover { color: var(--ruby-rose); }
 
-        /* Floating Input Smart Bar */
+        /* Floating Gold Input Bar */
         .floating-bar { 
             position: fixed; bottom: 75px; left: 50%; transform: translateX(-50%); 
             width: calc(100% - 32px); max-width: 448px; 
-            background: rgba(18, 24, 38, 0.88); backdrop-filter: blur(24px); 
-            border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 28px; 
+            background: rgba(18, 15, 10, 0.92); backdrop-filter: blur(24px); 
+            border: 1px solid var(--gold-primary); border-radius: 28px; 
             padding: 6px 12px; display: flex; align-items: center; gap: 8px; 
-            box-shadow: 0 12px 40px rgba(0,0,0,0.6); z-index: 100; 
+            box-shadow: 0 12px 40px var(--gold-glow); z-index: 100; 
         }
         .floating-bar input { flex: 1; background: transparent; border: none; color: white; outline: none; font-size: 0.92rem; }
-        .mic-btn { width: 38px; height: 38px; border-radius: 50%; background: rgba(255,255,255,0.06); border: 1px solid var(--card-border); color: var(--text-main); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
-        .mic-btn.recording { background: var(--accent-rose); animation: pulse 1.2s infinite; border-color: var(--accent-rose); }
-        .send-btn { width: 38px; height: 38px; border-radius: 50%; background: var(--accent-indigo); border: none; color: white; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(99,102,241,0.4); }
+        .mic-btn { width: 38px; height: 38px; border-radius: 50%; background: rgba(212,175,55,0.08); border: 1px solid var(--card-border); color: var(--gold-light); cursor: pointer; display: flex; align-items: center; justify-content: center; }
+        .mic-btn.recording { background: var(--ruby-rose); animation: pulse 1.2s infinite; border-color: var(--ruby-rose); color: white; }
+        .send-btn { width: 38px; height: 38px; border-radius: 50%; background: linear-gradient(135deg, #f59e0b, #d4af37); border: none; color: #000; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 15px var(--gold-glow); }
 
         @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
 
-        /* Bottom Navigation Bar (5 tabs) */
-        .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; background: rgba(8, 10, 15, 0.92); backdrop-filter: blur(24px); border-top: 1px solid var(--card-border); height: 68px; display: flex; justify-content: space-around; align-items: center; z-index: 99; }
-        .nav-tab { display: flex; flex-direction: column; align-items: center; gap: 4px; color: var(--text-sub); font-size: 0.65rem; border: none; background: transparent; cursor: pointer; width: 20%; transition: color 0.2s; }
-        .nav-tab i { font-size: 1.15rem; }
-        .nav-tab.active { color: var(--accent-indigo); font-weight: 600; }
-        .nav-tab.active.green { color: var(--accent-green); }
-        .nav-tab.active.rose { color: var(--accent-rose); }
+        /* Bottom Nav Bar */
+        .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; background: rgba(8, 8, 6, 0.95); backdrop-filter: blur(24px); border-top: 1px solid var(--card-border); height: 68px; display: flex; justify-content: space-around; align-items: center; z-index: 99; }
+        .nav-tab { display: flex; flex-direction: column; align-items: center; gap: 4px; color: var(--text-sub); font-size: 0.68rem; border: none; background: transparent; cursor: pointer; width: 25%; transition: color 0.2s; }
+        .nav-tab i { font-size: 1.2rem; }
+        .nav-tab.active { color: var(--gold-primary); font-weight: 700; text-shadow: 0 0 10px var(--gold-glow); }
 
-        .select-field { background: rgba(0,0,0,0.3); border: 1px solid var(--card-border); color: white; padding: 10px 14px; border-radius: 12px; width: 100%; margin-top: 8px; outline: none; font-size: 0.9rem; }
+        .select-field { background: rgba(0,0,0,0.5); border: 1px solid var(--card-border); color: white; padding: 10px 14px; border-radius: 12px; width: 100%; margin-top: 8px; outline: none; font-size: 0.9rem; }
     </style>
 </head>
 <body>
@@ -82,57 +107,58 @@
             <div class="user-badge">
                 <div class="avatar" id="uAvatar">A</div>
                 <div>
-                    <h3 id="uName" style="font-size: 1rem; font-weight: 700;">Aura OS</h3>
-                    <p style="font-size: 0.72rem; color: var(--text-sub);" id="viewSubtitle">Дайджест и статистика</p>
+                    <h3 id="uName" style="font-size: 1rem; font-weight: 800; color: #fff;">Aura OS</h3>
+                    <p style="font-size: 0.72rem; color: var(--gold-primary);" id="viewSubtitle">Royal Gold Edition</p>
                 </div>
             </div>
-            <i class="fa-solid fa-sliders" style="color: var(--text-sub); font-size: 1.1rem; cursor: pointer;" onclick="switchTab('settings', document.querySelectorAll('.nav-tab')[4])"></i>
+            <i class="fa-solid fa-sliders" style="color: var(--gold-primary); font-size: 1.1rem; cursor: pointer;" onclick="switchTab('settings', document.querySelectorAll('.nav-tab')[3])"></i>
         </div>
 
         <!-- VIEW 1: DIGEST -->
         <div id="view-digest" class="view-section active">
             <div class="glass-card">
-                <div class="card-label">Свободный баланс</div>
+                <div class="card-label">Чистый Баланс</div>
                 <div class="balance-hero" id="totalBalance">0.00 ֏</div>
             </div>
             <div class="grid-2">
-                <div class="glass-card" onclick="switchTab('income', document.querySelectorAll('.nav-tab')[2])">
-                    <div class="card-label" style="color: var(--accent-green);">Доходы</div>
-                    <div style="font-size: 1.4rem; font-weight:800; color:var(--accent-green);" id="cntIncome">0.00 ֏</div>
+                <div class="glass-card" onclick="switchTab('finance', document.querySelectorAll('.nav-tab')[2]); switchFinSubtab('income');">
+                    <div class="card-label" style="color: var(--emerald-green);">Доходы</div>
+                    <div style="font-size: 1.35rem; font-weight:800; color:var(--emerald-green);" id="cntIncome">0.00 ֏</div>
                 </div>
-                <div class="glass-card" onclick="switchTab('expense', document.querySelectorAll('.nav-tab')[3])">
-                    <div class="card-label" style="color: var(--accent-rose);">Расходы</div>
-                    <div style="font-size: 1.4rem; font-weight:800; color:var(--accent-rose);" id="cntExpenses">0.00 ֏</div>
+                <div class="glass-card" onclick="switchTab('finance', document.querySelectorAll('.nav-tab')[2]); switchFinSubtab('expense');">
+                    <div class="card-label" style="color: var(--ruby-rose);">Расходы</div>
+                    <div style="font-size: 1.35rem; font-weight:800; color:var(--ruby-rose);" id="cntExpenses">0.00 ֏</div>
                 </div>
             </div>
-            <h4 style="margin: 16px 0 10px 0; font-size: 0.85rem; color: var(--text-sub); text-transform: uppercase; letter-spacing: 0.5px;">Последняя активность</h4>
+            <h4 style="margin: 16px 0 10px 0; font-size: 0.82rem; color: var(--text-sub); text-transform: uppercase; letter-spacing: 1px;">Последняя активность</h4>
             <div id="digestList"></div>
         </div>
 
         <!-- VIEW 2: TASKS -->
         <div id="view-tasks" class="view-section">
-            <h3 style="margin-bottom: 14px; font-weight: 700;">Список задач</h3>
+            <h3 style="margin-bottom: 14px; font-weight: 800; color: var(--gold-light);">Задачи и дела</h3>
             <div id="tasksList"></div>
         </div>
 
-        <!-- VIEW 3: INCOME -->
-        <div id="view-income" class="view-section">
-            <h3 style="margin-bottom: 14px; font-weight: 700; color: var(--accent-green);">Доходы и пополнения</h3>
-            <div id="incomeList"></div>
+        <!-- VIEW 3: FINANCE -->
+        <div id="view-finance" class="view-section">
+            <div class="subtabs-container">
+                <button class="subtab-btn active exp" id="btnSubExp" onclick="switchFinSubtab('expense')">
+                    <i class="fa-solid fa-arrow-up-long"></i> Расходы
+                </button>
+                <button class="subtab-btn" id="btnSubInc" onclick="switchFinSubtab('income')">
+                    <i class="fa-solid fa-arrow-down-long"></i> Доходы
+                </button>
+            </div>
+            <div id="financeItemsList"></div>
         </div>
 
-        <!-- VIEW 4: EXPENSES -->
-        <div id="view-expense" class="view-section">
-            <h3 style="margin-bottom: 14px; font-weight: 700; color: var(--accent-rose);">Расходы и траты</h3>
-            <div id="expenseList"></div>
-        </div>
-
-        <!-- VIEW 5: SETTINGS -->
+        <!-- VIEW 4: SETTINGS -->
         <div id="view-settings" class="view-section">
-            <h3 style="margin-bottom: 14px; font-weight: 700;">Настройки аккаунта</h3>
+            <h3 style="margin-bottom: 14px; font-weight: 800; color: var(--gold-light);">Настройки аккаунта</h3>
             <div class="glass-card">
-                <div style="font-size:0.9rem; font-weight:600;">Основная валюта</div>
-                <div style="font-size:0.75rem; color:var(--text-sub); margin-top:2px;">Все операции будут автоматически конвертироваться в эту валюту</div>
+                <div style="font-size:0.9rem; font-weight:700;">Валюта аккаунта</div>
+                <div style="font-size:0.75rem; color:var(--text-sub); margin-top:2px;">Автоматическая конвертация всех операций</div>
                 <select id="userCurrSelect" class="select-field" onchange="updateCurrency(this.value)">
                     <option value="AMD">AMD (֏ - Армянский Драм)</option>
                     <option value="USD">USD ($ - Доллар США)</option>
@@ -149,12 +175,11 @@
         <button class="send-btn" onclick="sendInput()"><i class="fa-solid fa-arrow-up"></i></button>
     </div>
 
-    <!-- Bottom Navigation Bar (5 tabs) -->
+    <!-- Bottom Nav -->
     <div class="bottom-nav">
         <button class="nav-tab active" onclick="switchTab('digest', this)"><i class="fa-solid fa-chart-pie"></i><span>Обзор</span></button>
         <button class="nav-tab" onclick="switchTab('tasks', this)"><i class="fa-solid fa-list-check"></i><span>Задачи</span></button>
-        <button class="nav-tab" onclick="switchTab('income', this)"><i class="fa-solid fa-arrow-down-left"></i><span>Доходы</span></button>
-        <button class="nav-tab" onclick="switchTab('expense', this)"><i class="fa-solid fa-arrow-up-right"></i><span>Расходы</span></button>
+        <button class="nav-tab" onclick="switchTab('finance', this)"><i class="fa-solid fa-wallet"></i><span>Финансы</span></button>
         <button class="nav-tab" onclick="switchTab('settings', this)"><i class="fa-solid fa-gear"></i><span>Настройки</span></button>
     </div>
 
@@ -170,6 +195,7 @@
 
         let records = [];
         let userCurrency = "AMD";
+        let activeFinSubtab = 'expense';
         let mediaRecorder = null;
         let audioChunks = [];
         let isRecording = false;
@@ -265,32 +291,81 @@
 
         function switchTab(viewName, btn) {
             document.querySelectorAll('.view-section').forEach(v => v.classList.remove('active'));
-            document.querySelectorAll('.nav-tab').forEach(b => b.className = 'nav-tab');
+            document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
             document.getElementById(`view-${viewName}`).classList.add('active');
-            
-            if (btn) {
-                btn.classList.add('active');
-                if (viewName === 'income') btn.classList.add('green');
-                if (viewName === 'expense') btn.classList.add('rose');
-            }
+            if (btn) btn.classList.add('active');
 
             const subtitles = {
-                digest: 'Дайджест и статистика',
+                digest: 'Royal Gold Edition',
                 tasks: 'Ваши активные задачи',
-                income: 'Учет поступающих средств',
-                expense: 'Учет персональных трат',
-                settings: 'Параметры и интеграция'
+                finance: 'Управление доходами и расходами',
+                settings: 'Параметры и интеграции'
             };
-            document.getElementById('viewSubtitle').innerText = subtitles[viewName] || 'Aura OS Pro';
+            document.getElementById('viewSubtitle').innerText = subtitles[viewName] || 'Aura OS';
+        }
+
+        function switchFinSubtab(type) {
+            activeFinSubtab = type;
+            const btnExp = document.getElementById('btnSubExp');
+            const btnInc = document.getElementById('btnSubInc');
+
+            if (type === 'expense') {
+                btnExp.className = 'subtab-btn active exp';
+                btnInc.className = 'subtab-btn';
+            } else {
+                btnInc.className = 'subtab-btn active inc';
+                btnExp.className = 'subtab-btn';
+            }
+            render();
+        }
+
+        function createCardElement(r) {
+            const isIncome = r.type === 'income';
+            const formattedAmount = (r.amount || 0).toFixed(2);
+            const currSymbol = r.currency || userCurrency;
+
+            const card = document.createElement('div');
+            card.className = 'item-card';
+
+            let iconBg = 'rgba(212,175,55,0.12)';
+            let iconColor = '#d4af37';
+            let iconClass = 'fa-check';
+
+            if (r.category === 'finance') {
+                if (isIncome) {
+                    iconBg = 'rgba(16,185,129,0.2)';
+                    iconColor = '#10b981';
+                    iconClass = 'fa-arrow-down-long';
+                } else {
+                    iconBg = 'rgba(244,63,94,0.2)';
+                    iconColor = '#f43f5e';
+                    iconClass = 'fa-arrow-up-long';
+                }
+            }
+
+            card.innerHTML = `
+                <div class="item-left">
+                    <div class="item-icon" style="background:${iconBg}; color:${iconColor}; border:1px solid ${iconColor}44;">
+                        <i class="fa-solid ${iconClass}"></i>
+                    </div>
+                    <div>
+                        <div style="font-size:0.92rem; font-weight:700; color:#fff;">${r.title}</div>
+                        <div style="font-size:0.75rem; color:var(--text-sub); margin-top:2px;">
+                            ${r.category.toUpperCase()} ${r.amount ? '• <span style="color:'+iconColor+'; font-weight:bold;">' + (isIncome ? '+' : '-') + formattedAmount + ' ' + currSymbol + '</span>' : ''}
+                        </div>
+                    </div>
+                </div>
+                <button class="delete-btn" onclick="deleteRecord(${r.id})"><i class="fa-solid fa-trash"></i></button>
+            `;
+            return card;
         }
 
         function render() {
             const digestList = document.getElementById('digestList');
             const tasksList = document.getElementById('tasksList');
-            const incomeList = document.getElementById('incomeList');
-            const expenseList = document.getElementById('expenseList');
+            const financeItemsList = document.getElementById('financeItemsList');
 
-            digestList.innerHTML = ''; tasksList.innerHTML = ''; incomeList.innerHTML = ''; expenseList.innerHTML = '';
+            digestList.innerHTML = ''; tasksList.innerHTML = ''; financeItemsList.innerHTML = '';
 
             let expTotal = 0;
             let incTotal = 0;
@@ -302,45 +377,19 @@
                     else expTotal += (r.amount || 0);
                 }
 
-                const formattedAmount = (r.amount || 0).toFixed(2);
-                const currSymbol = r.currency || userCurrency;
+                digestList.appendChild(createCardElement(r));
 
-                const card = document.createElement('div');
-                card.className = 'item-card';
-
-                let iconBg = 'rgba(99,102,241,0.15)';
-                let iconColor = '#6366f1';
-                let iconClass = 'fa-check';
-
-                if (r.category === 'finance') {
-                    if (isIncome) {
-                        iconBg = 'rgba(16,185,129,0.15)';
-                        iconColor = '#10b981';
-                        iconClass = 'fa-arrow-down-left';
-                    } else {
-                        iconBg = 'rgba(244,63,94,0.15)';
-                        iconColor = '#f43f5e';
-                        iconClass = 'fa-arrow-up-right';
-                    }
+                if (r.category === 'task') {
+                    tasksList.appendChild(createCardElement(r));
                 }
 
-                card.innerHTML = `
-                    <div class="item-left">
-                        <div class="item-icon" style="background:${iconBg}; color:${iconColor};">
-                            <i class="fa-solid ${iconClass}"></i>
-                        </div>
-                        <div>
-                            <div style="font-size:0.9rem; font-weight:600;">${r.title}</div>
-                            <div style="font-size:0.72rem; color:var(--text-sub);">${r.category.toUpperCase()} ${r.amount ? '• ' + (isIncome ? '+' : '-') + formattedAmount + ' ' + currSymbol : ''}</div>
-                        </div>
-                    </div>
-                    <button class="delete-btn" onclick="deleteRecord(${r.id})"><i class="fa-solid fa-trash"></i></button>
-                `;
-
-                digestList.appendChild(card.cloneNode(true));
-                if (r.category === 'task') tasksList.appendChild(card.cloneNode(true));
-                if (r.category === 'finance' && isIncome) incomeList.appendChild(card.cloneNode(true));
-                if (r.category === 'finance' && !isIncome) expenseList.appendChild(card.cloneNode(true));
+                if (r.category === 'finance') {
+                    if (activeFinSubtab === 'income' && isIncome) {
+                        financeItemsList.appendChild(createCardElement(r));
+                    } else if (activeFinSubtab === 'expense' && !isIncome) {
+                        financeItemsList.appendChild(createCardElement(r));
+                    }
+                }
             });
 
             const currSymbol = userCurrency === 'AMD' ? '֏' : (userCurrency === 'USD' ? '$' : '₽');
