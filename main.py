@@ -2,6 +2,7 @@ import os
 import re
 import io
 import asyncio
+from datetime import datetime, timezone, timedelta
 from typing import Optional, List
 from pydantic import BaseModel
 import httpx
@@ -20,7 +21,7 @@ import models
 
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
-from aiogram.types import WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
 # --- АВТО-МИГРАЦИЯ СТРУКТУРЫ БД ---
 try:
@@ -53,11 +54,11 @@ bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 recognizer = sr.Recognizer()
 
-# --- КУРСЫ ВАЛЮТ (AMD / USD / RUB) ---
+# --- КУРСЫ ВАЛЮТ ---
 RATES_TO_USD = {
     "USD": 1.0,
-    "AMD": 0.00258,  # ~388 AMD za 1 USD
-    "RUB": 0.011     # ~90 RUB za 1 USD
+    "AMD": 0.00258,
+    "RUB": 0.011
 }
 
 def convert_currency(amount: float, from_curr: str, to_curr: str) -> float:
@@ -319,7 +320,15 @@ def handle_shortcut(id: int, payload: ShortcutPayload, db: Session = Depends(get
         "text": record.title
     }
 
-# --- TELEGRAM BOT ---
+# --- TELEGRAM BOT И ИНТЕРАКТИВНЫЕ КНОПКИ ---
+
+def get_record_keyboard(record_id: int):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🔄 Доход / Расход", callback_data=f"toggle_type:{record_id}"),
+            InlineKeyboardButton(text="🗑 Удалить", callback_data=f"del_rec:{record_id}")
+        ]
+    ])
 
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
@@ -337,7 +346,13 @@ async def handle_text_message(message: types.Message):
     db = next(get_db())
     rec = parse_and_save(message.from_user.id, message.text, db)
     emoji = "📈" if rec.type == "income" else ("💸" if rec.category == "finance" else "✅")
-    await message.answer(f"{emoji} Записано: **{rec.title}** ({rec.amount:.2f} {rec.currency})", parse_mode="Markdown")
+    
+    await message.answer(
+        f"{emoji} Записано: **{rec.title}**\n"
+        f"Тип: **{rec.type.upper()}** | Сумма: **{rec.amount:.2f} {rec.currency}**",
+        parse_mode="Markdown",
+        reply_markup=get_record_keyboard(rec.id)
+    )
 
 @dp.message(F.voice)
 async def handle_voice_message(message: types.Message):
@@ -351,7 +366,84 @@ async def handle_voice_message(message: types.Message):
 
     rec = parse_and_save(message.from_user.id, recognized_text, db)
     emoji = "📈" if rec.type == "income" else ("💸" if rec.category == "finance" else "✅")
-    await message.answer(f"🎙 {emoji} **Распознано:** «{rec.title}»\nСумма: **{rec.amount:.2f} {rec.currency}**", parse_mode="Markdown")
+    
+    await message.answer(
+        f"🎙 {emoji} **Распознано:** «{rec.title}»\n"
+        f"Тип: **{rec.type.upper()}** | Сумма: **{rec.amount:.2f} {rec.currency}**",
+        parse_mode="Markdown",
+        reply_markup=get_record_keyboard(rec.id)
+    )
+
+@dp.callback_query(F.data.startswith("toggle_type:"))
+async def cb_toggle_type(callback: CallbackQuery):
+    rec_id = int(callback.data.split(":")[1])
+    db = next(get_db())
+    rec = db.query(models.Record).filter(models.Record.id == rec_id).first()
+    if rec:
+        rec.type = "income" if rec.type == "expense" else "expense"
+        db.commit()
+        emoji = "📈" if rec.type == "income" else "💸"
+        await callback.message.edit_text(
+            f"{emoji} Изменено: **{rec.title}**\n"
+            f"Новый тип: **{rec.type.upper()}** | Сумма: **{rec.amount:.2f} {rec.currency}**",
+            parse_mode="Markdown",
+            reply_markup=get_record_keyboard(rec.id)
+        )
+        await callback.answer("Тип записи успешно изменен!")
+    else:
+        await callback.answer("Запись не найдена", show_alert=True)
+
+@dp.callback_query(F.data.startswith("del_rec:"))
+async def cb_delete_rec(callback: CallbackQuery):
+    rec_id = int(callback.data.split(":")[1])
+    db = next(get_db())
+    rec = db.query(models.Record).filter(models.Record.id == rec_id).first()
+    if rec:
+        db.delete(rec)
+        db.commit()
+        await callback.message.edit_text("🗑 Запись успешно удалена!", parse_mode="Markdown")
+        await callback.answer("Удалено")
+    else:
+        await callback.answer("Запись не найдена", show_alert=True)
+
+# --- ЕЖЕДНЕВНЫЙ ДАЙДЖЕСТ (21:00 ПО ЕРЕВАНУ) ---
+async def daily_digest_scheduler():
+    last_sent_date = None
+    while True:
+        try:
+            # Часовой пояс Еревана (UTC+4)
+            yerevan_tz = timezone(timedelta(hours=4))
+            now = datetime.now(yerevan_tz)
+            
+            if now.hour == 21 and last_sent_date != now.date():
+                db = next(get_db())
+                users = db.query(models.User).all()
+                
+                for user in users:
+                    records = db.query(models.Record).filter(models.Record.user_id == user.id).all()
+                    inc_total = sum(r.amount for r in records if r.type == "income")
+                    exp_total = sum(r.amount for r in records if r.type == "expense")
+                    tasks_cnt = sum(1 for r in records if r.category == "task")
+                    
+                    curr = user.currency or "AMD"
+                    msg = (
+                        f"🌙 **Вечерний Дайджест Aura OS** ({now.strftime('%d.%m')})\n\n"
+                        f"📈 Доходы за всё время: `{inc_total:.2f} {curr}`\n"
+                        f"💸 Расходы за всё время: `{exp_total:.2f} {curr}`\n"
+                        f"💰 Свободный Баланс: `{(inc_total - exp_total):.2f} {curr}`\n"
+                        f"✅ Активных задач: `{tasks_cnt}`\n\n"
+                        f"Хорошего вечера!"
+                    )
+                    try:
+                        await bot.send_message(user.telegram_id, msg, parse_mode="Markdown")
+                    except Exception:
+                        pass
+                
+                last_sent_date = now.date()
+        except Exception as e:
+            print(f"Digest error: {e}")
+            
+        await asyncio.sleep(300) # Проверка каждые 5 минут
 
 async def keep_alive():
     await asyncio.sleep(30)
@@ -368,3 +460,4 @@ async def keep_alive():
 async def on_startup():
     asyncio.create_task(dp.start_polling(bot))
     asyncio.create_task(keep_alive())
+    asyncio.create_task(daily_digest_scheduler())
