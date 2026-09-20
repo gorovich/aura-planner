@@ -5,7 +5,7 @@ from typing import Optional, List
 from pydantic import BaseModel
 import httpx
 
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
@@ -17,13 +17,13 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton
 
-# Инициализация таблиц БД
+# Инициализация таблиц Базы Данных
 Base.metadata.create_all(bind=engine)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 WEBAPP_URL = os.getenv("WEBAPP_URL", "https://aura-planner-ejyi.onrender.com")
 
-app = FastAPI(title="Aura SGX Planner API")
+app = FastAPI(title="Aura OS Planner API")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
@@ -77,7 +77,7 @@ def parse_and_save(telegram_id: int, text: str, db: Session):
                 amount = float(val)
                 break
 
-    # Триггеры для финансовых расходов
+    # Ключевые слова расходов (RU, EN, HY)
     finance_keywords = [
         "руб", "$", "драм", "֏", "купил", "потратил", "цена", "стоил", "кофе", "кофե",
         "dollar", "dolar", "դոլար", "դրամ", "ծախս", "գնեցի", "կոֆե", "սուրճ", "ստացա"
@@ -100,7 +100,7 @@ def parse_and_save(telegram_id: int, text: str, db: Session):
     db.refresh(record)
     return record
 
-# --- REST API ---
+# --- REST API МАРШРУТЫ ---
 
 @app.get("/", response_class=HTMLResponse)
 async def read_index():
@@ -141,6 +141,22 @@ def delete_record(record_id: int, db: Session = Depends(get_db)):
     db.commit()
     return {"status": "deleted"}
 
+# Прием веб-записей с микрофона из Mini App
+@app.post("/api/voice")
+async def handle_web_voice(
+    telegram_id: int = Form(...),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db)
+):
+    rec = parse_and_save(telegram_id, "Голосовая заметка", db)
+    return {
+        "status": "ok", 
+        "id": rec.id, 
+        "title": rec.title, 
+        "category": rec.category
+    }
+
+# Входной эндпоинт для Быстрых команд iOS (Siri)
 @app.post("/api/shortcut")
 def handle_shortcut(id: int, payload: ShortcutPayload, db: Session = Depends(get_db)):
     record = parse_and_save(id, payload.text, db)
@@ -156,12 +172,12 @@ def handle_shortcut(id: int, payload: ShortcutPayload, db: Session = Depends(get
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
     markup = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🚀 Открыть SGX Planner", web_app=WebAppInfo(url=WEBAPP_URL))]
+        [InlineKeyboardButton(text="🚀 Открыть Aura OS Planner", web_app=WebAppInfo(url=WEBAPP_URL))]
     ])
     await message.answer(
         f"Привет, {message.from_user.first_name}! 👋\n\n"
-        f"🎙 Отправляй мне **текстовые или голосовые сообщения** прямо сюда, и я сразу занесу их в планер!\n\n"
-        f"Для настройки голосового ввода Siri на iPhone используй команду /shortcut.",
+        f"🎙 Напиши или надиктуй голосовое сообщение прямо сюда, и я сразу занесу его в планер!\n\n"
+        f"Для настройки голосового ввода через Siri на iPhone напиши команду /shortcut.",
         reply_markup=markup
     )
 
