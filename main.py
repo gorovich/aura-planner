@@ -320,7 +320,6 @@ def parse_and_save(
     if user.is_blocked:
         raise HTTPException(status_code=403, detail="Пользователь заблокирован")
 
-    # Проверка лимита (3 записи в день для бесплатных юзеров после триала)
     is_prem = check_is_premium(user)
     if not is_prem:
         today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -524,21 +523,35 @@ def deposit_goal(goal_id: int, data: GoalDeposit, db: Session = Depends(get_db))
 @app.post("/api/family/create/{telegram_id}")
 def create_family(telegram_id: int, db: Session = Depends(get_db)):
     user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
-    if not user: raise HTTPException(status_code=404, detail="User not found")
-    code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
-    family = models.Family(code=code, name=f"Семья {user.first_name}")
+    if not user: 
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    
+    # Возвращаем существующий код семьи, если юзер уже в семье
+    if user.family:
+        return {"status": "ok", "code": user.family.code, "is_existing": True}
+
+    while True:
+        code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+        existing_family = db.query(models.Family).filter(models.Family.code == code).first()
+        if not existing_family:
+            break
+
+    family = models.Family(code=code, name=f"Семья {user.first_name or user.telegram_id}")
     db.add(family)
     db.commit()
     db.refresh(family)
+
     user.family_id = family.id
     db.commit()
-    return {"status": "ok", "code": code}
+    return {"status": "ok", "code": code, "is_existing": False}
 
 @app.post("/api/family/join")
 def join_family(data: FamilyJoin, db: Session = Depends(get_db)):
     user = db.query(models.User).filter(models.User.telegram_id == data.telegram_id).first()
     family = db.query(models.Family).filter(models.Family.code == data.code.strip().upper()).first()
-    if not user or not family: raise HTTPException(status_code=404, detail="Код семьи не найден")
+    if not user or not family: 
+        raise HTTPException(status_code=404, detail="Код семьи не найден")
+    
     user.family_id = family.id
     db.commit()
     return {"status": "ok", "family_name": family.name}
