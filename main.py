@@ -447,6 +447,18 @@ def delete_record(record_id: int, db: Session = Depends(get_db)):
     db.commit()
     return {"status": "deleted"}
 
+@app.patch("/api/records/{record_id}/status")
+def toggle_record_status(record_id: int, db: Session = Depends(get_db)):
+    record = db.query(models.Record).filter(models.Record.id == record_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Запись не найдена")
+    
+    # Переключаем статус между pending и completed
+    record.status = "completed" if record.status == "pending" else "pending"
+    db.commit()
+    db.refresh(record)
+    return {"status": "ok", "new_status": record.status}
+
 @app.post("/api/voice")
 async def handle_web_voice(
     telegram_id: int = Form(...),
