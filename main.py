@@ -1,10 +1,12 @@
 import os
 import re
 import io
+import random
+import string
 import asyncio
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, date
 from typing import Optional, List
 from contextlib import asynccontextmanager
 from pydantic import BaseModel
@@ -23,9 +25,11 @@ from database import engine, Base, get_db, SessionLocal
 import models
 
 from aiogram import Bot, Dispatcher, types, F
-from aiogram.filters import CommandStart, Command
-from aiogram.filters.chat_member_updated import ChatMemberUpdatedFilter, KICKED, MEMBER
-from aiogram.types import WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, ChatMemberUpdated
+from aiogram.filters import CommandStart
+from aiogram.types import (
+    WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton, 
+    LabeledPrice, PreCheckoutQuery, Message
+)
 
 # --- КОНФИГУРАЦИЯ ---
 ADMIN_TELEGRAM_ID = 1689610141
@@ -38,7 +42,7 @@ dp = Dispatcher()
 recognizer = sr.Recognizer()
 
 
-# --- СИНХРОННЫЕ МИГРАЦИИ БД ---
+# --- МИГРАЦИИ БД ---
 def run_db_migrations():
     try:
         with engine.connect() as conn:
@@ -50,8 +54,11 @@ def run_db_migrations():
             conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_blocked BOOLEAN DEFAULT FALSE;"))
             conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_premium BOOLEAN DEFAULT FALSE;"))
             conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS bot_active BOOLEAN DEFAULT TRUE;"))
-            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;"))
-            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;"))
+            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS trial_until TIMESTAMP;"))
+            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS premium_until TIMESTAMP;"))
+            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS streak_count INTEGER DEFAULT 1;"))
+            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_streak_date DATE;"))
+            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS family_id INTEGER;"))
             
             conn.execute(text("ALTER TABLE records ADD COLUMN IF NOT EXISTS type VARCHAR DEFAULT 'expense';"))
             conn.execute(text("ALTER TABLE records ADD COLUMN IF NOT EXISTS currency VARCHAR DEFAULT 'AMD';"))
@@ -71,7 +78,30 @@ def run_db_migrations():
     Base.metadata.create_all(bind=engine)
 
 
-# --- ФОНОВЫЕ ЗАДАЧИ ПЛАНИРОВЩИКА ---
+# --- ПРОВЕРКИ СТАТУСОВ ---
+def check_is_premium(user: models.User) -> bool:
+    if user.is_admin or user.is_premium:
+        return True
+    now = datetime.utcnow()
+    if user.premium_until and user.premium_until > now:
+        return True
+    if user.trial_until and user.trial_until > now:
+        return True
+    return False
+
+def update_streak(user: models.User, db: Session):
+    today = date.today()
+    if user.last_streak_date == today:
+        return
+    if user.last_streak_date == today - timedelta(days=1):
+        user.streak_count += 1
+    else:
+        user.streak_count = 1
+    user.last_streak_date = today
+    db.commit()
+
+
+# --- ПЛАНИРОВЩИК ЗАДАЧ ---
 scheduler = AsyncIOScheduler()
 
 async def check_reminders_and_deadlines():
@@ -93,35 +123,29 @@ async def check_reminders_and_deadlines():
                     msg = f"{icon} **Напоминание / Дедлайн!**\n\n**{rec.title}**"
                     if rec.amount > 0:
                         msg += f"\nСумма: `{rec.amount:.2f} {rec.currency}`"
-                    
                     try:
                         await bot.send_message(user.telegram_id, msg, parse_mode="Markdown")
                         rec.is_reminded = True
-                        
                         if rec.is_recurring and rec.recurrence_rule == "monthly":
                             rec.due_date = rec.due_date + timedelta(days=30)
                             rec.is_reminded = False
-                            
                         db.commit()
                     except Exception as e:
-                        print(f"Failed to send reminder to {user.telegram_id}: {e}")
+                        print(f"Reminder send error: {e}")
         except Exception as e:
-            print(f"Reminder check error: {e}")
+            print(f"Reminder task error: {e}")
 
 async def send_daily_digest():
     with SessionLocal() as db:
         try:
             yerevan_tz = timezone(timedelta(hours=4))
             now = datetime.now(yerevan_tz)
-            
             users = db.query(models.User).filter(models.User.bot_active == True, models.User.is_blocked == False).all()
-            
             for user in users:
                 records = db.query(models.Record).filter(models.Record.user_id == user.id).all()
                 inc_total = sum(r.amount for r in records if r.type == "income")
                 exp_total = sum(r.amount for r in records if r.type == "expense")
                 tasks_cnt = sum(1 for r in records if r.category == "task" and r.status == "pending")
-                
                 curr = user.currency or "AMD"
                 msg = (
                     f"🌙 **Вечерний Дайджест Aura OS** ({now.strftime('%d.%m')})\n\n"
@@ -140,12 +164,9 @@ async def send_daily_digest():
             print(f"Digest error: {e}")
 
 async def run_bot():
-    await asyncio.sleep(5)
-    try:
-        await bot.delete_webhook(drop_pending_updates=True)
-    except Exception as e:
-        print(f"Webhook drop notice: {e}")
-        
+    await asyncio.sleep(4)
+    try: await bot.delete_webhook(drop_pending_updates=True)
+    except Exception: pass
     await dp.start_polling(bot, handle_signals=False)
 
 async def keep_alive():
@@ -153,27 +174,20 @@ async def keep_alive():
     ping_url = f"{WEBAPP_URL}/ping"
     async with httpx.AsyncClient() as client:
         while True:
-            try:
-                await client.get(ping_url)
-            except Exception:
-                pass
+            try: await client.get(ping_url)
+            except Exception: pass
             await asyncio.sleep(600)
 
 
-# --- LIFESPAN ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     asyncio.create_task(asyncio.to_thread(run_db_migrations))
-
     scheduler.add_job(check_reminders_and_deadlines, 'interval', minutes=1)
     scheduler.add_job(send_daily_digest, CronTrigger(hour=21, minute=0, timezone="Asia/Yerevan"))
     scheduler.start()
-
     bot_task = asyncio.create_task(run_bot())
     keep_alive_task = asyncio.create_task(keep_alive())
-
     yield
-
     scheduler.shutdown()
     bot_task.cancel()
     keep_alive_task.cancel()
@@ -183,10 +197,7 @@ app = FastAPI(title="Aura OS Royal Gold API", lifespan=lifespan)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
-
-if not os.path.exists(STATIC_DIR):
-    os.makedirs(STATIC_DIR)
-
+if not os.path.exists(STATIC_DIR): os.makedirs(STATIC_DIR)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
@@ -196,12 +207,11 @@ async def health_check():
     return {"status": "ok", "online": True}
 
 
-# --- КУРСЫ ВАЛЮТ И ОБРАБОТКА АУДИО ---
+# --- ВАЛЮТЫ И АУДИО ---
 RATES_TO_USD = { "USD": 1.0, "AMD": 0.00258, "RUB": 0.011 }
 
 def convert_currency(amount: float, from_curr: str, to_curr: str) -> float:
-    if from_curr == to_curr or amount == 0:
-        return amount
+    if from_curr == to_curr or amount == 0: return amount
     amount_in_usd = amount * RATES_TO_USD.get(from_curr, 1.0)
     target_rate = RATES_TO_USD.get(to_curr, 1.0)
     return round(amount_in_usd / target_rate, 2)
@@ -244,10 +254,24 @@ class RecordCreate(BaseModel):
     type: Optional[str] = None
     due_date: Optional[str] = None
     is_recurring: Optional[bool] = False
-    recurrence_rule: Optional[str] = None
 
-class ShortcutPayload(BaseModel):
-    text: str
+class GoalCreate(BaseModel):
+    telegram_id: int
+    title: str
+    target_amount: float
+    icon: Optional[str] = "🎯"
+
+class GoalDeposit(BaseModel):
+    telegram_id: int
+    amount: float
+
+class FamilyJoin(BaseModel):
+    telegram_id: int
+    code: str
+
+class StarsInvoiceRequest(BaseModel):
+    telegram_id: int
+    months: int
 
 class AdminUserAction(BaseModel):
     admin_id: int
@@ -274,8 +298,7 @@ def parse_and_save(
     sub_category_override: Optional[str] = None,
     type_override: Optional[str] = None,
     due_date_override: Optional[datetime] = None,
-    is_recurring: bool = False,
-    recurrence_rule: Optional[str] = None
+    is_recurring: bool = False
 ):
     user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
     is_adm = (telegram_id == ADMIN_TELEGRAM_ID)
@@ -297,32 +320,40 @@ def parse_and_save(
     if user.is_blocked:
         raise HTTPException(status_code=403, detail="Пользователь заблокирован")
 
+    # Проверка лимита (3 записи в день для бесплатных юзеров после триала)
+    is_prem = check_is_premium(user)
+    if not is_prem:
+        today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        today_count = db.query(models.Record).filter(
+            models.Record.user_id == user.id,
+            models.Record.created_at >= today_start
+        ).count()
+        if today_count >= 3:
+            raise HTTPException(
+                status_code=402, 
+                detail="Достигнут лимит на сегодня (3/3). Перейдите на Royal Gold для безлимита!"
+            )
+
+    update_streak(user, db)
+
     base_currency = user.currency or "AMD"
     category = category_override or "task"
     sub_category = sub_category_override or "general"
     rec_type = type_override or "expense"
     amount = 0.0
-    detected_currency = None
     text_lower = text.lower()
-
-    if any(k in text_lower for k in ["доллар", "dollar", "dolar", "$", "դոլար"]): detected_currency = "USD"
-    elif any(k in text_lower for k in ["рубл", "руб", "rub", "ռուբլի"]): detected_currency = "RUB"
-    elif any(k in text_lower for k in ["драм", "dram", "֏", "դրամ"]): detected_currency = "AMD"
-    else: detected_currency = base_currency
 
     normalized_text = re.sub(r'(\d+)[\.,\s](\d{3})\b', r'\1\2', text_lower)
     numbers = re.findall(r'\d+(?:\.\d+)?', normalized_text)
     
     if numbers:
         amount = float(numbers[0])
-        if any(k in text_lower for k in ["млн", "миллион", "միլիոն", "million"]):
-            if amount < 1000000: amount *= 1000000
-        elif any(k in text_lower for k in ["тыс", "հազար", "k", "thousand"]):
-            if amount < 1000: amount *= 1000
+        if any(k in text_lower for k in ["млн", "миллион", "միլիոն"]): amount *= 1000000
+        elif any(k in text_lower for k in ["тыс", "հազար", "k"]): amount *= 1000
 
     if not category_override and not type_override:
-        income_triggers = ["зарплат", "получк", "аванс", "преми", "доход", "получил", "перевод", "прибыль", "ստացա", "եկամուտ", "աշխատավարձ", "salary", "income", "profit"]
-        expense_triggers = ["руб", "$", "драм", "֏", "купил", "потратил", "цена", "кофе", "заправк", "бензин", "ремонт", "оплат", "еда", "такси", "ծախս", "գնեցի", "սուրճ", "տաքսի", "bought", "spent", "coffee", "food"]
+        income_triggers = ["зарплат", "получк", "аванс", "преми", "доход", "получил", "перевод", "ստացա", "եկամուտ", "salary"]
+        expense_triggers = ["руб", "$", "драм", "֏", "купил", "потратил", "кофе", "заправк", "бензин", "ремонт", "еда", "такси", "ծախս", "սուրճ"]
 
         if any(k in text_lower for k in income_triggers):
             category = "finance"
@@ -330,9 +361,6 @@ def parse_and_save(
         elif amount > 0 or any(k in text_lower for k in expense_triggers):
             category = "finance"
             rec_type = "expense"
-
-    if category == "finance" and amount > 0:
-        amount = convert_currency(amount, detected_currency, base_currency)
 
     record = models.Record(
         user_id=user.id,
@@ -343,8 +371,7 @@ def parse_and_save(
         amount=round(amount, 2),
         currency=base_currency,
         due_date=due_date_override,
-        is_recurring=is_recurring,
-        recurrence_rule=recurrence_rule
+        is_recurring=is_recurring
     )
     db.add(record)
     db.commit()
@@ -378,7 +405,18 @@ def get_user_info(telegram_id: int, first_name: Optional[str] = None, username: 
         if is_adm and not user.is_admin: user.is_admin = True
         db.commit()
 
-    return { "currency": user.currency, "language": user.language or "ru", "is_admin": user.is_admin, "is_premium": user.is_premium, "is_blocked": user.is_blocked }
+    is_prem = check_is_premium(user)
+    family_code = user.family.code if user.family else None
+
+    return {
+        "currency": user.currency,
+        "language": user.language or "ru",
+        "is_admin": user.is_admin,
+        "is_premium": is_prem,
+        "is_blocked": user.is_blocked,
+        "streak_count": user.streak_count or 1,
+        "family_code": family_code
+    }
 
 @app.post("/api/user/settings")
 def update_user_settings(data: UserSettings, db: Session = Depends(get_db)):
@@ -387,12 +425,17 @@ def update_user_settings(data: UserSettings, db: Session = Depends(get_db)):
         if data.currency: user.currency = data.currency
         if data.language: user.language = data.language
         db.commit()
-    return {"status": "ok", "currency": user.currency, "language": user.language}
+    return {"status": "ok"}
 
 @app.get("/api/records/{telegram_id}")
 def get_records(telegram_id: int, db: Session = Depends(get_db)):
     user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
     if not user: return []
+    
+    if user.family_id:
+        family_user_ids = [u.id for u in db.query(models.User).filter(models.User.family_id == user.family_id).all()]
+        return db.query(models.Record).filter(models.Record.user_id.in_(family_user_ids)).order_by(models.Record.id.desc()).all()
+
     return db.query(models.Record).filter(models.Record.user_id == user.id).order_by(models.Record.id.desc()).all()
 
 @app.post("/api/records")
@@ -408,14 +451,12 @@ def create_record(data: RecordCreate, db: Session = Depends(get_db)):
         sub_category_override=data.sub_category,
         type_override=data.type,
         due_date_override=parsed_date,
-        is_recurring=data.is_recurring or False,
-        recurrence_rule=data.recurrence_rule
+        is_recurring=data.is_recurring or False
     )
     return {
         "status": "ok", "id": record.id, "title": record.title,
         "category": record.category, "sub_category": record.sub_category,
-        "type": record.type, "amount": record.amount, "currency": record.currency,
-        "status_str": record.status, "due_date": record.due_date.isoformat() if record.due_date else None
+        "type": record.type, "amount": record.amount, "currency": record.currency
     }
 
 @app.patch("/api/records/{record_id}/status")
@@ -424,7 +465,6 @@ def toggle_record_status(record_id: int, db: Session = Depends(get_db)):
     if not record: raise HTTPException(status_code=404, detail="Not found")
     record.status = "completed" if record.status == "pending" else "pending"
     db.commit()
-    db.refresh(record)
     return {"status": "ok", "new_status": record.status}
 
 @app.delete("/api/records/{record_id}")
@@ -436,14 +476,117 @@ def delete_record(record_id: int, db: Session = Depends(get_db)):
     return {"status": "deleted"}
 
 @app.post("/api/voice")
-async def handle_web_voice(telegram_id: int = Form(...), file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def handle_web_voice(
+    telegram_id: int = Form(...),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db)
+):
     audio_bytes = await file.read()
     recognized_text = recognize_speech_free(audio_bytes) or "Голосовая запись"
     rec = parse_and_save(telegram_id, recognized_text, db)
     return { "status": "ok", "id": rec.id, "title": rec.title, "category": rec.category, "type": rec.type, "amount": rec.amount, "currency": rec.currency }
 
 
-# --- ADMIN ENDPOINTS ---
+# --- API КОПИЛОК И СЕМЬИ ---
+
+@app.get("/api/goals/{telegram_id}")
+def get_goals(telegram_id: int, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
+    if not user: return []
+    if user.family_id:
+        return db.query(models.Goal).filter(models.Goal.family_id == user.family_id).all()
+    return db.query(models.Goal).filter(models.Goal.user_id == user.id).all()
+
+@app.post("/api/goals")
+def create_goal(data: GoalCreate, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.telegram_id == data.telegram_id).first()
+    if not user: raise HTTPException(status_code=404, detail="User not found")
+    goal = models.Goal(
+        user_id=user.id,
+        family_id=user.family_id,
+        title=data.title,
+        target_amount=data.target_amount,
+        currency=user.currency or "AMD",
+        icon=data.icon or "🎯"
+    )
+    db.add(goal)
+    db.commit()
+    return {"status": "ok"}
+
+@app.post("/api/goals/{goal_id}/deposit")
+def deposit_goal(goal_id: int, data: GoalDeposit, db: Session = Depends(get_db)):
+    goal = db.query(models.Goal).filter(models.Goal.id == goal_id).first()
+    if not goal: raise HTTPException(status_code=404, detail="Goal not found")
+    goal.current_amount += data.amount
+    db.commit()
+    return {"status": "ok", "current_amount": goal.current_amount}
+
+@app.post("/api/family/create/{telegram_id}")
+def create_family(telegram_id: int, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
+    if not user: raise HTTPException(status_code=404, detail="User not found")
+    code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+    family = models.Family(code=code, name=f"Семья {user.first_name}")
+    db.add(family)
+    db.commit()
+    db.refresh(family)
+    user.family_id = family.id
+    db.commit()
+    return {"status": "ok", "code": code}
+
+@app.post("/api/family/join")
+def join_family(data: FamilyJoin, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.telegram_id == data.telegram_id).first()
+    family = db.query(models.Family).filter(models.Family.code == data.code.strip().upper()).first()
+    if not user or not family: raise HTTPException(status_code=404, detail="Код семьи не найден")
+    user.family_id = family.id
+    db.commit()
+    return {"status": "ok", "family_name": family.name}
+
+
+# --- ОПЛАТА TELEGRAM STARS ---
+
+@app.post("/api/pay/stars")
+async def create_stars_invoice(data: StarsInvoiceRequest, db: Session = Depends(get_db)):
+    stars_price = 150
+    if data.months == 3: stars_price = 350
+    elif data.months == 12: stars_price = 990
+
+    prices = [LabeledPrice(label=f"Royal Gold ({data.months} мес.)", amount=stars_price)]
+    invoice_link = await bot.create_invoice_link(
+        title=f"Aura OS Royal Gold ({data.months} мес.)",
+        description=f"Безлимитный доступ ко всем функциям Aura OS на {data.months} мес.",
+        payload=f"sub_{data.telegram_id}_{data.months}",
+        provider_token="",
+        currency="XTR",
+        prices=prices
+    )
+    return {"invoice_url": invoice_link}
+
+@dp.pre_checkout_query()
+async def process_pre_checkout_query(query: PreCheckoutQuery):
+    await bot.answer_pre_checkout_query(query.id, ok=True)
+
+@dp.message(F.successful_payment)
+async def process_successful_payment(message: Message):
+    payload = message.successful_payment.invoice_payload
+    parts = payload.split("_")
+    tg_id = int(parts[1])
+    months = int(parts[2])
+
+    with SessionLocal() as db:
+        user = db.query(models.User).filter(models.User.telegram_id == tg_id).first()
+        if user:
+            user.is_premium = True
+            now = datetime.utcnow()
+            base_date = user.premium_until if (user.premium_until and user.premium_until > now) else now
+            user.premium_until = base_date + timedelta(days=30 * months)
+            db.commit()
+
+    await message.answer(f"🎉 **Оплата зачислена!** Подписка Royal Gold продлена на {months} мес. Спасибо!")
+
+
+# --- ПОЛНЫЕ АДМИНСКИЕ ЭНДПОИНТЫ ---
 
 @app.get("/api/admin/stats/{admin_id}")
 def get_admin_stats(admin_id: int, db: Session = Depends(get_db)):
@@ -511,18 +654,18 @@ async def admin_direct_message(data: AdminDirectMessage, db: Session = Depends(g
     user = None
     if target_clean.isdigit(): user = db.query(models.User).filter(models.User.telegram_id == int(target_clean)).first()
     else: user = db.query(models.User).filter(models.User.username.ilike(f"%{target_clean.lstrip('@')}%")).first()
-    if not user: raise HTTPException(status_code=404, detail="User not found")
+    if not user: raise HTTPException(status_code=404, detail="Пользователь не найден")
     await bot.send_message(user.telegram_id, data.message_text, parse_mode="Markdown")
     return {"status": "ok", "recipient": user.first_name or str(user.telegram_id)}
 
 
-# --- TELEGRAM BOT ---
+# --- TELEGRAM BOT HANDLERS ---
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
     db = next(get_db())
     parse_and_save(message.from_user.id, "", db, first_name=message.from_user.first_name, username=message.from_user.username)
     markup = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="👑 Открыть Aura OS Gold", web_app=WebAppInfo(url=WEBAPP_URL))]])
-    await message.answer(f"Привет, {message.from_user.first_name}! 👋\n\n🎙 Напиши или надиктуй задачу/доход/расход!", reply_markup=markup)
+    await message.answer(f"Привет, {message.from_user.first_name}! 👋\n\n👑 Добро пожаловать в Aura OS Royal Gold!", reply_markup=markup)
 
 @dp.message(F.text)
 async def handle_text_message(message: types.Message):
