@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Aura OS Royal Gold</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <!-- Подключение Chart.js для графиков -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     :root {
       --bg-color: #0b0c10;
@@ -43,21 +45,23 @@
     .stat-val.inc { color: var(--success); }
     .stat-val.exp { color: var(--danger); }
 
+    .chart-container { position: relative; width: 100%; height: 200px; margin-top: 14px; }
+
     .search-box { margin: 14px 0; }
     .search-input { width: 100%; background: var(--card-bg); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 12px; color: #fff; outline: none; }
 
     .section-title { font-size: 14px; font-weight: 600; color: var(--text-muted); margin: 16px 0 10px; display: flex; justify-content: space-between; }
     .item-card { background: var(--card-bg); border: 1px solid rgba(255,255,255,0.05); border-radius: 14px; padding: 12px 14px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; }
     .item-left { display: flex; align-items: center; gap: 12px; }
-    .item-icon { width: 34px; height: 34px; border-radius: 8px; background: rgba(255,255,255,0.05); display: flex; align-items: center; justify-content: center; }
+    .item-icon { width: 36px; height: 36px; border-radius: 10px; background: rgba(255,255,255,0.05); display: flex; align-items: center; justify-content: center; font-size: 18px; }
 
     .task-checkbox { width: 22px; height: 22px; border-radius: 6px; border: 2px solid var(--gold-primary); display: flex; align-items: center; justify-content: center; cursor: pointer; }
     .task-checkbox.checked { background: var(--gold-primary); }
     .task-checkbox.checked::after { content: '✓'; color: #000; font-weight: bold; }
     .task-title.completed { text-decoration: line-through; color: var(--text-muted); }
 
-    .pills-container { display: flex; gap: 8px; margin-bottom: 12px; }
-    .pill { padding: 6px 14px; border-radius: 20px; background: var(--card-bg); border: 1px solid rgba(255,255,255,0.08); font-size: 12px; color: var(--text-muted); cursor: pointer; }
+    .pills-container { display: flex; gap: 8px; margin-bottom: 12px; overflow-x: auto; padding-bottom: 4px; }
+    .pill { padding: 6px 14px; border-radius: 20px; background: var(--card-bg); border: 1px solid rgba(255,255,255,0.08); font-size: 12px; color: var(--text-muted); cursor: pointer; white-space: nowrap; }
     .pill.active { background: var(--gold-primary); color: #000; font-weight: 600; }
 
     .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; height: 65px; background: rgba(15, 16, 21, 0.95); backdrop-filter: blur(15px); border-top: 1px solid rgba(255, 255, 255, 0.08); display: flex; justify-content: space-around; align-items: center; z-index: 100; }
@@ -68,7 +72,7 @@
 
     .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.8); backdrop-filter: blur(5px); display: none; align-items: center; justify-content: center; z-index: 200; padding: 20px; }
     .modal-overlay.active { display: flex; }
-    .modal-card { background: #15161c; border: 1px solid var(--card-border); border-radius: var(--radius); padding: 20px; width: 100%; max-width: 360px; }
+    .modal-card { background: #15161c; border: 1px solid var(--card-border); border-radius: var(--radius); padding: 20px; width: 100%; max-width: 360px; max-height: 90vh; overflow-y: auto; }
     .modal-title { font-size: 18px; font-weight: 600; margin-bottom: 14px; color: var(--gold-primary); }
     .form-group { margin-bottom: 12px; }
     .form-label { font-size: 12px; color: var(--text-muted); margin-bottom: 4px; display: block; }
@@ -104,10 +108,15 @@
           <div class="stat-val exp" id="expenseVal">-0.00</div>
         </div>
       </div>
+
+      <!-- ГРАФИК РАСХОДОВ ПО КАТЕГОРИЯМ -->
+      <div class="chart-container">
+        <canvas id="expenseChart"></canvas>
+      </div>
     </div>
 
     <div class="search-box">
-      <input type="text" class="search-input" id="searchFinance" placeholder="🔍 Поиск..." oninput="renderFinanceList()">
+      <input type="text" class="search-input" id="searchFinance" placeholder="🔍 Поиск по операциям..." oninput="renderFinanceList()">
     </div>
 
     <div class="section-title">
@@ -121,7 +130,7 @@
   <!-- TAB 2: PLANNER -->
   <div id="tab-planner" class="tab-content">
     <div class="section-title" style="margin-top: 10px;">
-      <span data-i18n="planner">Менеджер задач</span>
+      <span data-i18n="planner">Менеджер задач & Напоминания</span>
       <span id="taskCounter" style="font-size: 11px;">0</span>
     </div>
 
@@ -166,7 +175,7 @@
       <div style="font-size: 13px; color: var(--text-muted);">Загрузка статистики...</div>
     </div>
 
-    <div class="section-title">📢 Рассылка всем пользователям</div>
+    <div class="section-title">📢 Рассылка пользователям</div>
     <div class="balance-card">
       <div class="form-group">
         <textarea class="form-input" id="broadcastText" rows="3" placeholder="Текст рассылки..."></textarea>
@@ -180,7 +189,7 @@
         <input type="text" class="form-input" id="directTarget" placeholder="Telegram ID или @username">
       </div>
       <div class="form-group">
-        <textarea class="form-input" id="directMessageText" rows="3" placeholder="Текст личного сообщения..."></textarea>
+        <textarea class="form-input" id="directMessageText" rows="3" placeholder="Текст сообщения..."></textarea>
       </div>
       <button class="btn-submit" onclick="sendDirectMessage()">Отправить сообщение</button>
     </div>
@@ -203,11 +212,32 @@
 
       <div class="form-group">
         <label class="form-label" data-i18n="type">Тип записи</label>
-        <select class="form-select" id="modalType">
-          <option value="income" data-i18n="incType">📈 Доход (Финансы)</option>
+        <select class="form-select" id="modalType" onchange="toggleModalFields()">
           <option value="expense" data-i18n="expType">💸 Расход (Финансы)</option>
-          <option value="task" data-i18n="task">📝 Задача (Планер)</option>
+          <option value="income" data-i18n="incType">📈 Доход (Финансы)</option>
+          <option value="task" data-i18n="task">📝 Задача / Напоминание</option>
         </select>
+      </div>
+
+      <div class="form-group" id="subCategoryGroup">
+        <label class="form-label">Категория расхода</label>
+        <select class="form-select" id="modalSubCategory">
+          <option value="auto">🚗 Авто / Сервис / Бензин</option>
+          <option value="food">☕ Еда / Кафе / Продукты</option>
+          <option value="rent">🏠 Аренда / Коммуналка</option>
+          <option value="sub">💳 Подписки / Регулярное</option>
+          <option value="general">🛒 Прочее</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Дата и время дедлайна (опционально)</label>
+        <input type="datetime-local" class="form-input" id="modalDueDate">
+      </div>
+
+      <div class="form-group" style="display:flex; align-items:center; gap:8px;">
+        <input type="checkbox" id="modalIsRecurring">
+        <label for="modalIsRecurring" style="font-size:12px; color:var(--text-muted);">Повторять каждый месяц</label>
       </div>
 
       <button class="btn-submit" onclick="submitModalRecord()" data-i18n="save">Сохранить</button>
@@ -241,6 +271,15 @@
 
     const tgUser = tg?.initDataUnsafe?.user || { id: 1689610141, first_name: "Пользователь", username: "user" };
 
+    const categoryIcons = {
+      auto: '🚗',
+      food: '☕',
+      rent: '🏠',
+      sub: '💳',
+      general: '🛒',
+      income: '📈'
+    };
+
     const i18n = {
       ru: {
         balance: "Свободный баланс", income: "Доходы", expense: "Расходы",
@@ -248,7 +287,7 @@
         all: "Все", pending: "В процессе", completed: "Выполнено",
         settings: "Настройки профиля", currency: "Основная валюта учета",
         language: "Язык интерфейса", admin: "Админ", newRecord: "Новая запись",
-        type: "Тип записи", task: "📝 Задача (Планер)", expType: "💸 Расход (Финансы)",
+        type: "Тип записи", task: "📝 Задача", expType: "💸 Расход (Финансы)",
         incType: "📈 Доход (Финансы)", save: "Сохранить", cancel: "Отмена", finance: "Финансы"
       },
       hy: {
@@ -265,6 +304,7 @@
     let allRecords = [];
     let userSettings = { currency: 'AMD', language: 'ru', is_admin: false };
     let currentTaskFilter = 'all';
+    let chartInstance = null;
 
     async function initApp() {
       document.getElementById('userName').innerText = tgUser.first_name || "User";
@@ -296,9 +336,7 @@
         }
 
         applyLanguage(data.language || 'ru');
-      } catch (e) {
-        console.error("User info error:", e);
-      }
+      } catch (e) { console.error("User info error:", e); }
     }
 
     async function fetchRecords() {
@@ -307,9 +345,8 @@
         allRecords = await res.json();
         renderFinanceList();
         renderPlannerList();
-      } catch (e) {
-        console.error("Fetch records error:", e);
-      }
+        updateExpenseChart();
+      } catch (e) { console.error("Fetch records error:", e); }
     }
 
     async function saveUserSettings() {
@@ -348,14 +385,16 @@
 
         count++;
         const isInc = r.type === 'income';
+        const icon = isInc ? '📈' : (categoryIcons[r.sub_category] || '💸');
+
         const card = document.createElement('div');
         card.className = 'item-card';
         card.innerHTML = `
           <div class="item-left">
-            <div class="item-icon">${isInc ? '📈' : '💸'}</div>
+            <div class="item-icon">${icon}</div>
             <div>
               <div class="item-title">${escapeHtml(r.title)}</div>
-              <div class="item-sub">${isInc ? 'Зачисление' : 'Списание'}</div>
+              <div class="item-sub">${isInc ? 'Зачисление' : (r.sub_category || 'Расход')}</div>
             </div>
           </div>
           <div style="text-align: right;">
@@ -375,6 +414,42 @@
       document.getElementById('financeCount').innerText = `${count}`;
     }
 
+    // КРУГОВОЙ ГРАФИК РАСХОДОВ
+    function updateExpenseChart() {
+      const ctx = document.getElementById('expenseChart').getContext('2d');
+      const expenses = allRecords.filter(r => r.category === 'finance' && r.type === 'expense');
+
+      const categoryTotals = { auto: 0, food: 0, rent: 0, sub: 0, general: 0 };
+      expenses.forEach(r => {
+        const cat = r.sub_category || 'general';
+        categoryTotals[cat] = (categoryTotals[cat] || 0) + r.amount;
+      });
+
+      const labels = ['🚗 Авто', '☕ Еда/Кафе', '🏠 Жилье', '💳 Подписки', '🛒 Прочее'];
+      const data = [categoryTotals.auto, categoryTotals.food, categoryTotals.rent, categoryTotals.sub, categoryTotals.general];
+
+      if (chartInstance) chartInstance.destroy();
+
+      chartInstance = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: labels,
+          datasets: [{
+            data: data,
+            backgroundColor: ['#f39c12', '#e74c3c', '#3498db', '#9b59b6', '#95a5a6'],
+            borderWidth: 0
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'right', labels: { color: '#8a8d93', font: { size: 10 } } }
+          }
+        }
+      });
+    }
+
     function renderPlannerList() {
       const listEl = document.getElementById('plannerList');
       listEl.innerHTML = '';
@@ -389,6 +464,12 @@
         if (currentTaskFilter === 'pending' && isCompleted) return;
         if (currentTaskFilter === 'completed' && !isCompleted) return;
 
+        let dueStr = '';
+        if (r.due_date) {
+          const d = new Date(r.due_date);
+          dueStr = ` ⏰ ${d.getDate()}.${d.getMonth()+1} ${d.getHours()}:${d.getMinutes()<10?'0':''}${d.getMinutes()}`;
+        }
+
         const card = document.createElement('div');
         card.className = 'item-card';
         card.innerHTML = `
@@ -396,6 +477,7 @@
             <div class="task-checkbox ${isCompleted ? 'checked' : ''}" onclick="toggleTaskStatus(${r.id}, '${r.status}')"></div>
             <div>
               <div class="item-title ${isCompleted ? 'completed' : ''}">${escapeHtml(r.title)}</div>
+              <div class="item-sub" style="color:var(--gold-primary);">${dueStr}</div>
             </div>
           </div>
           <div>
@@ -408,9 +490,19 @@
       document.getElementById('taskCounter').innerText = `${activeCnt}`;
     }
 
+    function toggleModalFields() {
+      const type = document.getElementById('modalType').value;
+      const subGroup = document.getElementById('subCategoryGroup');
+      subGroup.style.display = (type === 'expense') ? 'block' : 'none';
+    }
+
     async function submitModalRecord() {
       const title = document.getElementById('modalTitle').value.trim();
       const selType = document.getElementById('modalType').value;
+      const subCat = document.getElementById('modalSubCategory').value;
+      const dueDate = document.getElementById('modalDueDate').value;
+      const isRec = document.getElementById('modalIsRecurring').checked;
+
       if (!title) return;
 
       let cat = 'finance';
@@ -428,7 +520,11 @@
           telegram_id: tgUser.id,
           title: title,
           category: cat,
-          type: typ
+          sub_category: subCat,
+          type: typ,
+          due_date: dueDate ? new Date(dueDate).toISOString() : null,
+          is_recurring: isRec,
+          recurrence_rule: isRec ? 'monthly' : null
         })
       });
 
@@ -437,8 +533,32 @@
 
       closeModal();
       document.getElementById('modalTitle').value = '';
+      fetchRecords();
+    }
+
+    async function toggleTaskStatus(id, currentStatus) {
+      haptic();
+      const rec = allRecords.find(r => r.id === id);
+      if (rec) {
+        rec.status = currentStatus === 'completed' ? 'pending' : 'completed';
+        renderPlannerList();
+
+        try {
+          await fetch(`/api/records/${id}/status`, { method: 'PATCH' });
+        } catch (e) {
+          rec.status = currentStatus;
+          renderPlannerList();
+        }
+      }
+    }
+
+    async function deleteRecord(id) {
+      haptic();
+      await fetch(`/api/records/${id}`, { method: 'DELETE' });
+      allRecords = allRecords.filter(r => r.id !== id);
       renderFinanceList();
       renderPlannerList();
+      updateExpenseChart();
     }
 
     async function fetchAdminStats() {
@@ -473,10 +593,6 @@
                 <b>${escapeHtml(u.first_name)}</b> ${u.username ? '(@' + escapeHtml(u.username) + ')' : ''}
                 <div style="font-size:11px; color:var(--text-muted);">ID: ${u.telegram_id} | Записей: ${u.records_count}</div>
               </div>
-              <div style="font-size:12px;">
-                ${u.is_premium ? '💎 Premium' : ''}
-                ${u.is_blocked ? '🚫 Banned' : ''}
-              </div>
             </div>
             <div style="display:flex; gap:8px; width:100%; margin-top:4px;">
               <button class="btn-submit" style="padding:6px; font-size:11px; margin:0; flex:1;" onclick="toggleUserPremium(${u.telegram_id})">
@@ -490,53 +606,35 @@
           usersListEl.appendChild(card);
         });
 
-      } catch (e) { console.error("Admin stats fetch error:", e); }
+      } catch (e) { console.error("Admin stats error:", e); }
     }
 
     async function sendDirectMessage() {
       const target = document.getElementById('directTarget').value.trim();
       const text = document.getElementById('directMessageText').value.trim();
-      if (!target || !text) {
-        alert("Заполните ID/username и текст сообщения");
-        return;
-      }
+      if (!target || !text) return;
       haptic();
-      try {
-        const res = await fetch('/api/admin/direct-message', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ admin_id: tgUser.id, target: target, message_text: text })
-        });
-        const data = await res.json();
-        if (res.ok) {
-          alert(`Сообщение отправлено для: ${data.recipient}`);
-          document.getElementById('directTarget').value = '';
-          document.getElementById('directMessageText').value = '';
-        } else {
-          alert(`Ошибка: ${data.detail}`);
-        }
-      } catch (e) {
-        alert("Ошибка при отправке сообщения");
+      const res = await fetch('/api/admin/direct-message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ admin_id: tgUser.id, target: target, message_text: text })
+      });
+      if (res.ok) {
+        alert("Отправлено!");
+        document.getElementById('directTarget').value = '';
+        document.getElementById('directMessageText').value = '';
       }
     }
 
     async function toggleUserPremium(targetTgId) {
       haptic();
-      await fetch('/api/admin/toggle-premium', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ admin_id: tgUser.id, target_tg_id: targetTgId })
-      });
+      await fetch('/api/admin/toggle-premium', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ admin_id: tgUser.id, target_tg_id: targetTgId }) });
       fetchAdminStats();
     }
 
     async function toggleUserBan(targetTgId) {
       haptic();
-      await fetch('/api/admin/toggle-ban', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ admin_id: tgUser.id, target_tg_id: targetTgId })
-      });
+      await fetch('/api/admin/toggle-ban', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ admin_id: tgUser.id, target_tg_id: targetTgId }) });
       fetchAdminStats();
     }
 
@@ -544,46 +642,10 @@
       const text = document.getElementById('broadcastText').value.trim();
       if (!text) return;
       haptic();
-      const res = await fetch('/api/admin/broadcast', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ admin_id: tgUser.id, message_text: text })
-      });
+      const res = await fetch('/api/admin/broadcast', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ admin_id: tgUser.id, message_text: text }) });
       const data = await res.json();
       alert(`Успешно отправлено: ${data.success}`);
       document.getElementById('broadcastText').value = '';
-    }
-
-	async function toggleTaskStatus(id, currentStatus) {
-		  haptic();
-		  const rec = allRecords.find(r => r.id === id);
-		  if (rec) {
-			// 1. Мгновенно обновляем интерфейс для плавности
-			rec.status = currentStatus === 'completed' ? 'pending' : 'completed';
-			renderPlannerList();
-
-			// 2. Отправляем запрос на сохранение нового статуса в БД
-			try {
-			  const res = await fetch(`/api/records/${id}/status`, { method: 'PATCH' });
-			  if (!res.ok) {
-				// В случае ошибки возвращаем статус обратно
-				rec.status = currentStatus;
-				renderPlannerList();
-			  }
-			} catch (e) {
-			  console.error("Ошибка сохранения статуса:", e);
-			  rec.status = currentStatus;
-			  renderPlannerList();
-			}
-		  }
-		}
-
-    async function deleteRecord(id) {
-      haptic();
-      await fetch(`/api/records/${id}`, { method: 'DELETE' });
-      allRecords = allRecords.filter(r => r.id !== id);
-      renderFinanceList();
-      renderPlannerList();
     }
 
     function switchTab(tabId, btn) {
