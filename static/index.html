@@ -29,7 +29,7 @@
     .user-name { font-size: 16px; font-weight: 600; }
     .user-badge { font-size: 11px; color: var(--gold-primary); text-transform: uppercase; letter-spacing: 1px; }
 
-    .streak-badge { background: rgba(243, 156, 18, 0.15); border: 1px solid #f39c12; padding: 4px 10px; border-radius: 20px; font-size: 12px; color: #f39c12; font-weight: bold; }
+    .streak-badge { background: rgba(243, 156, 18, 0.15); border: 1px solid #f39c12; padding: 4px 10px; border-radius: 20px; font-size: 12px; color: #f39c12; font-weight: bold; cursor: pointer; }
 
     .tab-content { display: none; padding: 0 16px; animation: fadeIn 0.2s ease-in-out; }
     .tab-content.active { display: block; }
@@ -86,6 +86,10 @@
     .mic-btn { background: rgba(231, 76, 60, 0.2); border: 1px solid var(--danger); color: var(--danger); border-radius: 50%; width: 46px; height: 46px; display: flex; align-items: center; justify-content: center; font-size: 20px; cursor: pointer; margin: 0 auto 12px; }
     .mic-btn.recording { animation: pulse 1s infinite; background: var(--danger); color: #fff; }
     @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
+
+    .guide-item { background: rgba(255,255,255,0.03); border-radius: 12px; padding: 12px; margin-bottom: 10px; border-left: 3px solid var(--gold-primary); }
+    .guide-title { font-size: 13px; font-weight: bold; color: var(--gold-primary); margin-bottom: 4px; }
+    .guide-desc { font-size: 12px; color: var(--text-muted); line-height: 1.4; }
   </style>
 </head>
 <body>
@@ -99,7 +103,7 @@
         <div class="user-badge" id="userStatus">Royal Gold</div>
       </div>
     </div>
-    <div class="streak-badge" id="streakBadge">🔥 1 дн.</div>
+    <div class="streak-badge" id="streakBadge" onclick="explainStreak()">🔥 1 дн.</div>
   </div>
 
   <!-- TAB 1: FINANCE -->
@@ -162,7 +166,16 @@
 
   <!-- TAB 4: SETTINGS & FAMILY -->
   <div id="tab-settings" class="tab-content">
-    <div class="section-title" style="margin-top: 10px;" data-i18n="familyTitle">👨‍👩‍👧 Aura Family (Семейный доступ)</div>
+    
+    <!-- ИНФОРМАЦИОННЫЙ БЛОК О ПОДПИСКЕ -->
+    <div class="section-title" style="margin-top: 10px;" data-i18n="subInfoTitle">💳 Статус подписки & Обучение</div>
+    <div class="balance-card">
+      <div style="font-size: 14px; font-weight: bold; color: var(--gold-primary);" id="userSubStatusText">Загрузка...</div>
+      <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;" id="userSubDaysText"></div>
+      <button class="btn-submit" style="margin-top: 12px;" onclick="openGuideModal()" data-i18n="openGuideBtn">📖 Инструкция и фичи Aura OS</button>
+    </div>
+
+    <div class="section-title" data-i18n="familyTitle">👨‍👩‍👧 Aura Family (Семейный доступ)</div>
     <div class="balance-card">
       <div id="familyStatusText" style="font-size: 12px; color: var(--text-muted); margin-bottom: 10px;" data-i18n="familyDesc">
         Подключите партнера, чтобы вести общий семейный учет и планер задач.
@@ -173,7 +186,7 @@
       </div>
     </div>
 
-    <div class="section-title" data-i18n="starsTitle">⭐ Подписка Royal Gold (Telegram Stars)</div>
+    <div class="section-title" data-i18n="starsTitle">⭐ Продление подписки (Telegram Stars)</div>
     <div class="balance-card">
       <div style="font-size:12px; margin-bottom: 10px; color:var(--text-muted);" data-i18n="starsDesc">Безлимитные записи, семейный доступ и ИИ-голосовой ввод.</div>
       <div style="display:flex; flex-direction:column; gap:6px;">
@@ -278,7 +291,41 @@
     </div>
   </div>
 
-  <!-- CUSTOM ALERT MODAL (Замена alert) -->
+  <!-- MODAL GUIDE / ОБУЧЕНИЕ -->
+  <div class="modal-overlay" id="guideModal">
+    <div class="modal-card">
+      <div class="modal-title" data-i18n="guideModalTitle">📖 Инструкция по Aura OS</div>
+      
+      <div class="guide-item">
+        <div class="guide-title">🔥 Стрики дисциплин</div>
+        <div class="guide-desc">Огонек в шапке показывает, сколько дней подряд вы заходите и ведете учет. Помогает сформировать полезную финансовую привычку!</div>
+      </div>
+
+      <div class="guide-item">
+        <div class="guide-title">🎙️ Голосовой ИИ-ввод</div>
+        <div class="guide-desc">Нажмите на микрофон в модальном окне и надиктуйте фразу, например: «Заменил масло в машине на 20000 драмов» — ИИ сам распознает текст.</div>
+      </div>
+
+      <div class="guide-item">
+        <div class="guide-title">🎯 Накопительные Копилки</div>
+        <div class="guide-desc">Создавайте цели (на ремонт, отпуск или покупку) и откладывайте суммы с наглядной шкалой прогресса.</div>
+      </div>
+
+      <div class="guide-item">
+        <div class="guide-title">👨‍👩‍👧 Семейный доступ (Aura Family)</div>
+        <div class="guide-desc">Сгенерируйте 6-значный код и введите его на телефоне партнера — у вас будет единый семейный баланс и совместный планер задач.</div>
+      </div>
+
+      <div class="guide-item">
+        <div class="guide-title">💎 Тарифы и Лимиты</div>
+        <div class="guide-desc">Первые 3 дня дается полный безлимит. На бесплатном тарифе доступно 3 записи в день. Для снятия ограничений оформите Royal Gold.</div>
+      </div>
+
+      <button class="btn-submit" onclick="closeGuideModal()" data-i18n="ok">Понятно!</button>
+    </div>
+  </div>
+
+  <!-- CUSTOM ALERT MODAL -->
   <div class="modal-overlay" id="customAlertModal">
     <div class="modal-card" style="text-align: center;">
       <div id="customAlertIcon" style="font-size: 38px; margin-bottom: 8px;">ℹ️</div>
@@ -288,7 +335,7 @@
     </div>
   </div>
 
-  <!-- CUSTOM PROMPT MODAL (Замена prompt) -->
+  <!-- CUSTOM PROMPT MODAL -->
   <div class="modal-overlay" id="customPromptModal">
     <div class="modal-card">
       <div class="modal-title" id="customPromptTitle" style="color: var(--gold-primary);">Введите значение</div>
@@ -343,13 +390,13 @@
         familyTitle: "👨‍👩‍👧 Aura Family (Семейный доступ)",
         familyDesc: "Подключите партнера, чтобы вести общий семейный учет и планер задач.",
         createCode: "Создать код", joinCode: "Ввести код",
-        starsTitle: "⭐ Подписка Royal Gold (Telegram Stars)",
+        starsTitle: "⭐ Продление подписки (Telegram Stars)",
         starsDesc: "Безлимитные записи, семейный доступ и ИИ-голосовой ввод.",
         month1: "1 Месяц — 150 ⭐️", month3: "3 Месяца — 350 ⭐️", year1: "1 Год — 990 ⭐️",
         newGoalTitle: "Новая Копилка", goalNamePlaceholder: "Название (например: Ремонт BMW)",
         goalTargetPlaceholder: "Целевая сумма", createGoalBtn: "Создать копилку",
         depositBtn: "+ Пополнить",
-        ok: "OK", confirm: "Подтвердить", error: "Ошибка", success: "Успешно",
+        ok: "Понятно!", confirm: "Подтвердить", error: "Ошибка", success: "Успешно",
         depositTitle: "Пополнение копилки", depositPlaceholder: "Введите сумму пополнения",
         familyCodeCreated: "Код семьи создан!", familyCodeIs: "Ваш код", shareWithPartner: "Передайте его второму человеку!",
         enterFamilyCodeTitle: "Вход в семью", enterFamilyCodePlaceholder: "Введите 6-значный код семьи",
@@ -357,7 +404,14 @@
         inFamilyPrefix: "✅ Вы в семье! Код приглашения", streakSuffix: "дн.",
         broadcastTitle: "📢 Рассылка всем пользователям", sendBroadcastBtn: "Отправить рассылку",
         directMsgTitle: "✉️ Личное сообщение", sendMsgBtn: "Отправить сообщение",
-        usersListTitle: "👥 Список пользователей", delete: "Удалить"
+        usersListTitle: "👥 Список пользователей", delete: "Удалить",
+        subInfoTitle: "💳 Статус подписки & Обучение", openGuideBtn: "📖 Инструкция и фичи Aura OS",
+        guideModalTitle: "📖 Инструкция по Aura OS",
+        statusAdmin: "👑 Администратор (Полный доступ)",
+        statusPaid: "💎 Royal Gold Premium",
+        statusTrial: "⏳ Пробный период (Trial)",
+        statusFree: "🆓 Базовый тариф (Лимит 3 записи/день)",
+        daysLeftLabel: "Осталось дней"
       },
       hy: {
         balance: "Ազատ մնացորդ", income: "Եկամուտներ", expense: "Ծախսեր",
@@ -377,7 +431,7 @@
         newGoalTitle: "Նոր Խնայողություն", goalNamePlaceholder: "Անվանում (օրինակ՝ BMW-ի վերանորոգում)",
         goalTargetPlaceholder: "Նպատակային գումար", createGoalBtn: "Ստեղծել նպատակ",
         depositBtn: "+ Ավելացնել",
-        ok: "Լավ", confirm: "Հաստատել", error: "Սխալ", success: "Հաջողությամբ",
+        ok: "Հասկանալի է!", confirm: "Հաստատել", error: "Սխալ", success: "Հաջողությամբ",
         depositTitle: "Խնայողության ավելացում", depositPlaceholder: "Մուտքագրեք գումարը",
         familyCodeCreated: "Ընտանեկան կոդը ստեղծված է!", familyCodeIs: "Ձեր կոդը", shareWithPartner: "Փոխանցեք այն մյուս անդամին!",
         enterFamilyCodeTitle: "Մուտք ընտանիք", enterFamilyCodePlaceholder: "Մուտքագրեք 6-նիշ կոդը",
@@ -385,7 +439,14 @@
         inFamilyPrefix: "✅ Դուք ընտանիքում եք: Հրավերի կոդը", streakSuffix: "օր",
         broadcastTitle: "📢 Հաղորդագրություն բոլորին", sendBroadcastBtn: "Ուղարկել",
         directMsgTitle: "✉️ Անձնական հաղորդագրություն", sendMsgBtn: "Ուղարկել",
-        usersListTitle: "👥 Օգտատերերի ցանկ", delete: "Ջնջել"
+        usersListTitle: "👥 Օգտատերերի ցանկ", delete: "Ջնջել",
+        subInfoTitle: "💳 Կարգավիճակ և Ուսուցում", openGuideBtn: "📖 Aura OS Ուղեցույց",
+        guideModalTitle: "📖 Aura OS Ուղեցույց",
+        statusAdmin: "👑 Ադմինիստրատոր",
+        statusPaid: "💎 Royal Gold Premium",
+        statusTrial: "⏳ Փորձնական շրջան (Trial)",
+        statusFree: "🆓 Հիմնական սակագին (3 գրանցում/օր)",
+        daysLeftLabel: "Մնացած օրեր"
       }
     };
 
@@ -424,7 +485,18 @@
       document.getElementById('goalTarget').placeholder = getI18nText('goalTargetPlaceholder');
     }
 
-    // --- КАСТОМНЫЕ МОДАЛЬНЫЕ ОКНА (ВМЕСТО BROWSER PROMPT И ALERT) ---
+    function explainStreak() {
+      showCustomAlert(
+        "🔥 Стрик дисциплин",
+        `Вы заходите в Aura OS и ведете учет уже ${userSettings.streak_count || 1} дн. подряд!\n\nПродолжайте каждый день, чтобы развивать финансовую дисциплину.`,
+        "🔥"
+      );
+    }
+
+    function openGuideModal() { haptic(); document.getElementById('guideModal').classList.add('active'); }
+    function closeGuideModal() { document.getElementById('guideModal').classList.remove('active'); }
+
+    // --- КАСТОМНЫЕ МОДАЛЬНЫЕ ОКНА ---
     function showCustomAlert(title, message, icon = 'ℹ️') {
       document.getElementById('customAlertIcon').innerText = icon;
       document.getElementById('customAlertTitle').innerText = title;
@@ -468,6 +540,22 @@
         document.getElementById('currencySelect').value = data.currency || 'AMD';
         document.getElementById('languageSelect').value = data.language || 'ru';
         document.getElementById('streakBadge').innerText = `🔥 ${data.streak_count || 1} ${getI18nText('streakSuffix')}`;
+
+        // Настройка текста статуса подписки в кабинете юзера
+        let statusText = getI18nText('statusFree');
+        let daysText = "";
+
+        if (data.sub_type === 'admin') statusText = getI18nText('statusAdmin');
+        else if (data.sub_type === 'paid') {
+          statusText = getI18nText('statusPaid');
+          daysText = `${getI18nText('daysLeftLabel')}: ${data.days_left} ${getI18nText('streakSuffix')}`;
+        } else if (data.sub_type === 'trial') {
+          statusText = getI18nText('statusTrial');
+          daysText = `${getI18nText('daysLeftLabel')}: ${data.days_left} ${getI18nText('streakSuffix')}`;
+        }
+
+        document.getElementById('userSubStatusText').innerText = statusText;
+        document.getElementById('userSubDaysText').innerText = daysText;
 
         if (data.is_admin) {
           document.getElementById('adminNavBtn').style.display = 'flex';
@@ -684,7 +772,7 @@
         mediaRecorder.start();
         btn.classList.add('recording');
       } catch (e) {
-        showCustomAlert(getI18nText('error'), getI18nText('micFail'), '⚠️');
+        showCustomAlert(getI18nText('error'), "Не удалось получить доступ к микрофону", '⚠️');
       }
     }
 
@@ -743,6 +831,11 @@
         usersListEl.innerHTML = '';
 
         users.forEach(u => {
+          let badgeHtml = "🆓 Free";
+          if (u.sub_type === 'admin') badgeHtml = "👑 Admin";
+          else if (u.sub_type === 'paid') badgeHtml = `💎 Premium (${u.days_left} дн.)`;
+          else if (u.sub_type === 'trial') badgeHtml = `⏳ Trial (${u.days_left} дн.)`;
+
           const card = document.createElement('div');
           card.className = 'item-card';
           card.style.flexDirection = 'column';
@@ -755,14 +848,14 @@
                 <b>${escapeHtml(u.first_name)}</b> ${u.username ? '(@' + escapeHtml(u.username) + ')' : ''}
                 <div style="font-size:11px; color:var(--text-muted);">ID: ${u.telegram_id} | Записей: ${u.records_count}</div>
               </div>
-              <div style="font-size:12px;">
-                ${u.is_premium ? '💎 Premium' : ''}
-                ${u.is_blocked ? '🚫 Banned' : ''}
+              <div style="font-size:11px; font-weight:bold; color:var(--gold-primary);">
+                ${badgeHtml}
+                ${u.is_blocked ? '<span style="color:var(--danger)"> [Banned]</span>' : ''}
               </div>
             </div>
             <div style="display:flex; gap:8px; width:100%; margin-top:4px;">
               <button class="btn-submit" style="padding:6px; font-size:11px; margin:0; flex:1;" onclick="toggleUserPremium(${u.telegram_id})">
-                ${u.is_premium ? 'Снять Premium' : 'Дать Premium'}
+                ${u.sub_type === 'paid' ? 'Снять Premium' : 'Дать Premium'}
               </button>
               <button class="btn-submit" style="padding:6px; font-size:11px; margin:0; flex:1; background:var(--danger); color:#fff;" onclick="toggleUserBan(${u.telegram_id})">
                 ${u.is_blocked ? 'Разбанить' : 'Забанить'}
@@ -868,7 +961,7 @@
       if (data.invoice_url && tg?.openInvoice) {
         tg.openInvoice(data.invoice_url, (status) => {
           if (status === 'paid') {
-            showCustomAlert(getI18nText('success'), getI18nText('paymentSuccess'), '👑');
+            showCustomAlert(getI18nText('success'), "Оплата успешно прошла!", '👑');
             fetchUserInfo();
           }
         });
