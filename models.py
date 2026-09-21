@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime, Boolean
+from sqlalchemy import Column, Integer, BigInteger, String, Float, ForeignKey, DateTime, Boolean
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from database import Base
@@ -7,7 +7,7 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
-    telegram_id = Column(BigInteger if 'BigInteger' in globals() else Integer, unique=True, index=True)
+    telegram_id = Column(BigInteger, unique=True, index=True)
     username = Column(String, nullable=True)
     first_name = Column(String, nullable=True)
     language = Column(String, default="ru")
@@ -22,7 +22,7 @@ class User(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     last_active_at = Column(DateTime, default=datetime.utcnow)
 
-    records = relationship("Record", back_populates="owner")
+    records = relationship("Record", back_populates="user")
 
 class Record(Base):
     __tablename__ = "records"
@@ -36,4 +36,11 @@ class Record(Base):
     currency = Column(String, default="AMD")
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    owner = relationship("User", back_populates="records")
+    # --- ПОЛЯ ДЛЯ ПЛАНЕРА И НАПОМИНАНИЙ ---
+    status = Column(String, default="pending")        # 'pending' или 'completed'
+    due_date = Column(DateTime, nullable=True)        # Дата и время дедлайна / напоминания
+    is_recurring = Column(Boolean, default=False)     # Флаг повторяющегося платежа/задачи
+    recurrence_rule = Column(String, nullable=True)   # 'monthly', 'weekly', 'daily'
+    is_reminded = Column(Boolean, default=False)     # Было ли отправлено уведомление
+
+    user = relationship("User", back_populates="records")

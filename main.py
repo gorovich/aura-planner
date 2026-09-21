@@ -2,6 +2,8 @@ import os
 import re
 import io
 import asyncio
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List
 from contextlib import asynccontextmanager
@@ -53,6 +55,11 @@ def run_db_migrations():
             
             conn.execute(text("ALTER TABLE records ADD COLUMN IF NOT EXISTS type VARCHAR DEFAULT 'expense';"))
             conn.execute(text("ALTER TABLE records ADD COLUMN IF NOT EXISTS currency VARCHAR DEFAULT 'AMD';"))
+            conn.execute(text("ALTER TABLE records ADD COLUMN IF NOT EXISTS status VARCHAR DEFAULT 'pending';"))
+            conn.execute(text("ALTER TABLE records ADD COLUMN IF NOT EXISTS due_date TIMESTAMP;"))
+            conn.execute(text("ALTER TABLE records ADD COLUMN IF NOT EXISTS is_recurring BOOLEAN DEFAULT FALSE;"))
+            conn.execute(text("ALTER TABLE records ADD COLUMN IF NOT EXISTS recurrence_rule VARCHAR;"))
+            conn.execute(text("ALTER TABLE records ADD COLUMN IF NOT EXISTS is_reminded BOOLEAN DEFAULT FALSE;"))
             
             conn.execute(text(f"UPDATE users SET is_admin = TRUE WHERE telegram_id = {ADMIN_TELEGRAM_ID};"))
             conn.commit()
@@ -63,7 +70,71 @@ def run_db_migrations():
     Base.metadata.create_all(bind=engine)
 
 
-# --- ФОНОВЫЕ ЗАДАЧИ ---
+# --- ФОНОВЫЕ ЗАДАЧИ ПЛАНИРОВЩИКА ---
+scheduler = AsyncIOScheduler()
+
+async def check_reminders_and_deadlines():
+    db = next(get_db())
+    yerevan_tz = timezone(timedelta(hours=4))
+    now = datetime.now(yerevan_tz).replace(tzinfo=None)
+
+    pending_records = db.query(models.Record).filter(
+        models.Record.due_date <= now,
+        models.Record.is_reminded == False,
+        models.Record.status == "pending"
+    ).all()
+
+    for rec in pending_records:
+        user = db.query(models.User).filter(models.User.id == rec.user_id, models.User.bot_active == True).first()
+        if user:
+            icon = "⏰" if rec.category == "task" else "💳"
+            msg = f"{icon} **Напоминание!**\n\n**{rec.title}**"
+            if rec.amount > 0:
+                msg += f"\nСумма: `{rec.amount:.2f} {rec.currency}`"
+            
+            try:
+                await bot.send_message(user.telegram_id, msg, parse_mode="Markdown")
+                rec.is_reminded = True
+                
+                if rec.is_recurring and rec.recurrence_rule == "monthly":
+                    rec.due_date = rec.due_date + timedelta(days=30)
+                    rec.is_reminded = False
+                    
+                db.commit()
+            except Exception as e:
+                print(f"Failed to send reminder to {user.telegram_id}: {e}")
+
+async def send_daily_digest():
+    try:
+        db = next(get_db())
+        yerevan_tz = timezone(timedelta(hours=4))
+        now = datetime.now(yerevan_tz)
+        
+        users = db.query(models.User).filter(models.User.bot_active == True, models.User.is_blocked == False).all()
+        
+        for user in users:
+            records = db.query(models.Record).filter(models.Record.user_id == user.id).all()
+            inc_total = sum(r.amount for r in records if r.type == "income")
+            exp_total = sum(r.amount for r in records if r.type == "expense")
+            tasks_cnt = sum(1 for r in records if r.category == "task" and r.status == "pending")
+            
+            curr = user.currency or "AMD"
+            msg = (
+                f"🌙 **Вечерний Дайджест Aura OS** ({now.strftime('%d.%m')})\n\n"
+                f"📈 Доходы: `{inc_total:.2f} {curr}`\n"
+                f"💸 Расходы: `{exp_total:.2f} {curr}`\n"
+                f"💰 Свободный Баланс: `{(inc_total - exp_total):.2f} {curr}`\n"
+                f"✅ Активных задач: `{tasks_cnt}`\n\n"
+                f"Хорошего вечера!"
+            )
+            try:
+                await bot.send_message(user.telegram_id, msg, parse_mode="Markdown")
+            except Exception:
+                user.bot_active = False
+                db.commit()
+    except Exception as e:
+        print(f"Digest error: {e}")
+
 async def run_bot():
     await asyncio.sleep(3)
     await dp.start_polling(bot, handle_signals=False)
@@ -79,59 +150,24 @@ async def keep_alive():
                 pass
             await asyncio.sleep(600)
 
-async def daily_digest_scheduler():
-    last_sent_date = None
-    while True:
-        try:
-            yerevan_tz = timezone(timedelta(hours=4))
-            now = datetime.now(yerevan_tz)
-            
-            if now.hour == 21 and last_sent_date != now.date():
-                db = next(get_db())
-                users = db.query(models.User).filter(models.User.bot_active == True, models.User.is_blocked == False).all()
-                
-                for user in users:
-                    records = db.query(models.Record).filter(models.Record.user_id == user.id).all()
-                    inc_total = sum(r.amount for r in records if r.type == "income")
-                    exp_total = sum(r.amount for r in records if r.type == "expense")
-                    tasks_cnt = sum(1 for r in records if r.category == "task")
-                    
-                    curr = user.currency or "AMD"
-                    msg = (
-                        f"🌙 **Вечерний Дайджест Aura OS** ({now.strftime('%d.%m')})\n\n"
-                        f"📈 Доходы за всё время: `{inc_total:.2f} {curr}`\n"
-                        f"💸 Расходы за всё время: `{exp_total:.2f} {curr}`\n"
-                        f"💰 Свободный Баланс: `{(inc_total - exp_total):.2f} {curr}`\n"
-                        f"✅ Активных задач: `{tasks_cnt}`\n\n"
-                        f"Хорошего вечера!"
-                    )
-                    try:
-                        await bot.send_message(user.telegram_id, msg, parse_mode="Markdown")
-                    except Exception:
-                        user.bot_active = False
-                        db.commit()
-                
-                last_sent_date = now.date()
-        except Exception as e:
-            print(f"Digest error: {e}")
-            
-        await asyncio.sleep(300)
-
 
 # --- ЖИЗНЕННЫЙ ЦИКЛ ПРИЛОЖЕНИЯ (LIFESPAN) ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # ВСЕ задачи запускаем асинхронно в фоне без await, чтобы дойти до yield мгновенно!
     asyncio.create_task(asyncio.to_thread(run_db_migrations))
+
+    scheduler.add_job(check_reminders_and_deadlines, 'interval', minutes=1)
+    scheduler.add_job(send_daily_digest, CronTrigger(hour=21, minute=0, timezone="Asia/Yerevan"))
+    scheduler.start()
+
     bot_task = asyncio.create_task(run_bot())
     keep_alive_task = asyncio.create_task(keep_alive())
-    digest_task = asyncio.create_task(daily_digest_scheduler())
 
-    yield  # В этот же момент Uvicorn сразу открывает порт $PORT для Render!
+    yield
 
+    scheduler.shutdown()
     bot_task.cancel()
     keep_alive_task.cancel()
-    digest_task.cancel()
 
 
 # --- ИНИЦИАЛИЗАЦИЯ FASTAPI И СТАТИКИ ---
@@ -356,7 +392,7 @@ def parse_and_save(telegram_id: int, text: str, db: Session, first_name: str = N
     return record
 
 
-# --- REST API ---
+# --- REST API ENDPOINTS ---
 
 @app.get("/", response_class=HTMLResponse)
 async def read_index():
@@ -613,13 +649,39 @@ async def user_unblocked_bot(event: ChatMemberUpdated):
         user.bot_active = True
         db.commit()
 
-def get_record_keyboard(record_id: int):
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="🔄 Доход / Расход", callback_data=f"toggle_type:{record_id}"),
-            InlineKeyboardButton(text="🗑 Удалить", callback_data=f"del_rec:{record_id}")
-        ]
+def get_record_keyboard(record_id: int, status: str = "pending", category: str = "task"):
+    buttons = []
+    
+    if category == "task":
+        status_btn_text = "✅ Отметить выполненной" if status == "pending" else "↩️ Вернуть в работу"
+        buttons.append([InlineKeyboardButton(text=status_btn_text, callback_data=f"toggle_status:{record_id}")])
+    
+    buttons.append([
+        InlineKeyboardButton(text="🔄 Доход / Расход", callback_data=f"toggle_type:{record_id}"),
+        InlineKeyboardButton(text="🗑 Удалить", callback_data=f"del_rec:{record_id}")
     ])
+    
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+@dp.callback_query(F.data.startswith("toggle_status:"))
+async def cb_toggle_status(callback: CallbackQuery):
+    rec_id = int(callback.data.split(":")[1])
+    db = next(get_db())
+    rec = db.query(models.Record).filter(models.Record.id == rec_id).first()
+    if rec:
+        rec.status = "completed" if rec.status == "pending" else "pending"
+        db.commit()
+        status_str = "ВЫПОЛНЕНО ✅" if rec.status == "completed" else "В ПРОЦЕССЕ ⏳"
+        
+        await callback.message.edit_text(
+            f"Задание: **{rec.title}**\nСтатус: **{status_str}**",
+            parse_mode="Markdown",
+            reply_markup=get_record_keyboard(rec.id, rec.status, rec.category)
+        )
+        await callback.answer("Статус задачи обновлен!")
+    else:
+        await callback.answer("Запись не найдена", show_alert=True)
 
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
@@ -657,7 +719,7 @@ async def handle_text_message(message: types.Message):
         f"{emoji} Записано: **{rec.title}**\n"
         f"Тип: **{rec.type.upper()}** | Сумма: **{rec.amount:.2f} {rec.currency}**",
         parse_mode="Markdown",
-        reply_markup=get_record_keyboard(rec.id)
+        reply_markup=get_record_keyboard(rec.id, rec.status, rec.category)
     )
 
 @dp.message(F.voice)
@@ -683,7 +745,7 @@ async def handle_voice_message(message: types.Message):
         f"🎙 {emoji} **Распознано:** «{rec.title}»\n"
         f"Тип: **{rec.type.upper()}** | Сумма: **{rec.amount:.2f} {rec.currency}**",
         parse_mode="Markdown",
-        reply_markup=get_record_keyboard(rec.id)
+        reply_markup=get_record_keyboard(rec.id, rec.status, rec.category)
     )
 
 @dp.callback_query(F.data.startswith("toggle_type:"))
@@ -699,7 +761,7 @@ async def cb_toggle_type(callback: CallbackQuery):
             f"{emoji} Изменено: **{rec.title}**\n"
             f"Новый тип: **{rec.type.upper()}** | Сумма: **{rec.amount:.2f} {rec.currency}**",
             parse_mode="Markdown",
-            reply_markup=get_record_keyboard(rec.id)
+            reply_markup=get_record_keyboard(rec.id, rec.status, rec.category)
         )
         await callback.answer("Тип записи изменен!")
     else:
