@@ -1,696 +1,770 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Aura OS Royal Gold</title>
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>
-        :root {
-            --bg-black: #080806;
-            --gold-primary: #d4af37;
-            --gold-light: #fef08a;
-            --gold-glow: rgba(212, 175, 55, 0.22);
-            --card-glass: rgba(22, 19, 14, 0.85);
-            --card-border: rgba(212, 175, 55, 0.18);
-            
-            --emerald-green: #10b981;
-            --emerald-glow: rgba(16, 185, 129, 0.2);
-            --ruby-rose: #f43f5e;
-            
-            --text-gold: #f59e0b;
-            --text-main: #f8fafc;
-            --text-sub: #8e8770;
-        }
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Aura OS Royal Gold</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    :root {
+      --bg-color: #0b0c10;
+      --card-bg: rgba(255, 255, 255, 0.05);
+      --card-border: rgba(212, 175, 55, 0.2);
+      --gold-primary: #d4af37;
+      --gold-gradient: linear-gradient(135deg, #f39c12, #d4af37, #f1c40f);
+      --text-main: #ffffff;
+      --text-muted: #8a8d93;
+      --danger: #e74c3c;
+      --success: #2ecc71;
+      --radius: 16px;
+    }
 
-        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif; -webkit-tap-highlight-color: transparent; }
-        body { background-color: var(--bg-black); color: var(--text-main); padding-bottom: 135px; min-height: 100vh; overflow-x: hidden; }
-        .app-container { max-width: 480px; margin: 0 auto; padding: 16px; }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
 
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-        .user-badge { display: flex; align-items: center; gap: 12px; }
-        .avatar { 
-            width: 42px; height: 42px; border-radius: 14px; 
-            background: linear-gradient(135deg, #f59e0b, #d4af37, #78350f); 
-            display: flex; align-items: center; justify-content: center; 
-            font-weight: 800; font-size: 1.1rem; color: #000;
-            box-shadow: 0 4px 18px var(--gold-glow); 
-        }
+    body {
+      background-color: var(--bg-color);
+      color: var(--text-main);
+      min-height: 100vh;
+      padding-bottom: 90px;
+      overflow-x: hidden;
+    }
 
-        .view-section { display: none; animation: fadeIn 0.22s ease-in-out; }
-        .view-section.active { display: block; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+    /* HEADER */
+    .app-header {
+      padding: 20px 16px 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: rgba(11, 12, 16, 0.8);
+      backdrop-filter: blur(10px);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
 
-        .glass-card { 
-            background: var(--card-glass); backdrop-filter: blur(20px); 
-            border: 1px solid var(--card-border); border-radius: 22px; 
-            padding: 18px; margin-bottom: 14px; box-shadow: 0 10px 35px rgba(0,0,0,0.6); 
-        }
-        .card-label { font-size: 0.72rem; color: var(--text-sub); text-transform: uppercase; letter-spacing: 1px; font-weight: 700; margin-bottom: 6px; }
-        
-        .balance-hero { 
-            font-size: 2.2rem; font-weight: 900; letter-spacing: -0.5px; 
-            background: linear-gradient(135deg, #fff 30%, #fef08a 70%, #d4af37 100%); 
-            -webkit-background-clip: text; -webkit-text-fill-color: transparent; 
-            text-shadow: 0 0 30px var(--gold-glow);
-        }
+    .user-info {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
 
-        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .avatar-placeholder {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: var(--gold-gradient);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      color: #000;
+      box-shadow: 0 0 10px rgba(212, 175, 55, 0.3);
+    }
 
-        .subtabs-container { display: flex; background: rgba(0,0,0,0.6); border: 1px solid var(--card-border); border-radius: 16px; padding: 4px; margin-bottom: 16px; }
-        .subtab-btn { flex: 1; padding: 10px; border: none; background: transparent; color: var(--text-sub); font-weight: 700; font-size: 0.88rem; border-radius: 12px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px; }
-        .subtab-btn.active.inc { background: linear-gradient(135deg, #059669, #10b981); color: white; box-shadow: 0 4px 15px var(--emerald-glow); }
-        .subtab-btn.active.exp { background: linear-gradient(135deg, #e11d48, #f43f5e); color: white; box-shadow: 0 4px 15px rgba(244,63,94,0.3); }
+    .user-name {
+      font-size: 16px;
+      font-weight: 600;
+    }
 
-        .item-card { background: var(--card-glass); border: 1px solid var(--card-border); border-radius: 18px; padding: 14px 16px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; transition: transform 0.15s; }
-        .item-card:active { transform: scale(0.98); }
-        .item-left { display: flex; align-items: center; gap: 14px; }
-        .item-icon { width: 42px; height: 42px; border-radius: 13px; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; flex-shrink: 0; }
-        .delete-btn { background: transparent; border: none; color: var(--text-sub); cursor: pointer; padding: 6px; transition: color 0.2s; }
-        .delete-btn:hover { color: var(--ruby-rose); }
+    .user-badge {
+      font-size: 11px;
+      color: var(--gold-primary);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
 
-        /* Quick Chips Bar */
-        .chips-scroll { 
-            position: fixed; bottom: 128px; left: 50%; transform: translateX(-50%); 
-            width: calc(100% - 32px); max-width: 448px; 
-            display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; 
-            scrollbar-width: none; z-index: 100; 
-        }
-        .chips-scroll::-webkit-scrollbar { display: none; }
-        .chip-btn { 
-            background: rgba(22, 19, 14, 0.92); border: 1px solid var(--card-border); 
-            color: var(--gold-light); font-size: 0.75rem; font-weight: 600; 
-            padding: 6px 12px; border-radius: 20px; white-space: nowrap; 
-            cursor: pointer; backdrop-filter: blur(12px); box-shadow: 0 4px 12px rgba(0,0,0,0.4); 
-            transition: all 0.2s; 
-        }
-        .chip-btn:active { transform: scale(0.94); background: var(--gold-primary); color: #000; }
+    /* TABS */
+    .tab-content {
+      display: none;
+      padding: 0 16px;
+      animation: fadeIn 0.25s ease-in-out;
+    }
 
-        /* Floating Input Bar */
-        .floating-bar { 
-            position: fixed; bottom: 75px; left: 50%; transform: translateX(-50%); 
-            width: calc(100% - 32px); max-width: 448px; 
-            background: rgba(18, 15, 10, 0.92); backdrop-filter: blur(24px); 
-            border: 1px solid var(--gold-primary); border-radius: 28px; 
-            padding: 6px 12px; display: flex; align-items: center; gap: 8px; 
-            box-shadow: 0 12px 40px var(--gold-glow); z-index: 100; 
-        }
-        .floating-bar input { flex: 1; background: transparent; border: none; color: white; outline: none; font-size: 0.92rem; }
-        .mic-btn { width: 38px; height: 38px; border-radius: 50%; background: rgba(212,175,55,0.08); border: 1px solid var(--card-border); color: var(--gold-light); cursor: pointer; display: flex; align-items: center; justify-content: center; }
-        .mic-btn.recording { background: var(--ruby-rose); animation: pulse 1.2s infinite; border-color: var(--ruby-rose); color: white; }
-        .send-btn { width: 38px; height: 38px; border-radius: 50%; background: linear-gradient(135deg, #f59e0b, #d4af37); border: none; color: #000; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 15px var(--gold-glow); }
+    .tab-content.active {
+      display: block;
+    }
 
-        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
 
-        .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; background: rgba(8, 8, 6, 0.95); backdrop-filter: blur(24px); border-top: 1px solid var(--card-border); height: 68px; display: flex; justify-content: space-around; align-items: center; z-index: 99; }
-        .nav-tab { display: flex; flex-direction: column; align-items: center; gap: 4px; color: var(--text-sub); font-size: 0.68rem; border: none; background: transparent; cursor: pointer; flex: 1; transition: color 0.2s; }
-        .nav-tab i { font-size: 1.2rem; }
-        .nav-tab.active { color: var(--gold-primary); font-weight: 700; text-shadow: 0 0 10px var(--gold-glow); }
+    /* BALANCE CARD */
+    .balance-card {
+      background: linear-gradient(145deg, rgba(255,255,255,0.07) 0%, rgba(212,175,55,0.05) 100%);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      padding: 20px;
+      margin-top: 10px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.37);
+      position: relative;
+      overflow: hidden;
+    }
 
-        .select-field { background: rgba(0,0,0,0.5); border: 1px solid var(--card-border); color: white; padding: 10px 14px; border-radius: 12px; width: 100%; margin-top: 8px; outline: none; font-size: 0.9rem; }
-        
-        /* Admin UI */
-        .admin-stat-card { background: rgba(212,175,55,0.08); border: 1px solid var(--card-border); border-radius: 16px; padding: 12px; text-align: center; }
-        .admin-stat-val { font-size: 1.4rem; font-weight: 800; color: var(--gold-light); }
-        .admin-user-row { background: rgba(0,0,0,0.4); border: 1px solid var(--card-border); border-radius: 14px; padding: 10px 12px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
-        .admin-btn-action { padding: 4px 10px; border-radius: 8px; border: none; font-size: 0.72rem; font-weight: bold; cursor: pointer; }
-    </style>
+    .balance-card::before {
+      content: '';
+      position: absolute;
+      top: -50%;
+      right: -50%;
+      width: 100%;
+      height: 100%;
+      background: radial-gradient(circle, rgba(212,175,55,0.15) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .balance-title {
+      font-size: 12px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .balance-amount {
+      font-size: 32px;
+      font-weight: 800;
+      margin: 8px 0 16px;
+      background: var(--gold-gradient);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .stat-item {
+      background: rgba(0, 0, 0, 0.3);
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.03);
+    }
+
+    .stat-label {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .stat-val {
+      font-size: 15px;
+      font-weight: 600;
+      margin-top: 2px;
+    }
+
+    .stat-val.inc { color: var(--success); }
+    .stat-val.exp { color: var(--danger); }
+
+    /* SEARCH & CONTROLS */
+    .search-box {
+      margin: 16px 0;
+      position: relative;
+    }
+
+    .search-input {
+      width: 100%;
+      background: var(--card-bg);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      padding: 12px 16px;
+      color: #fff;
+      font-size: 14px;
+      outline: none;
+    }
+
+    .search-input:focus {
+      border-color: var(--gold-primary);
+    }
+
+    /* LISTS & ITEMS */
+    .section-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin: 16px 0 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .item-card {
+      background: var(--card-bg);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 14px;
+      padding: 14px 16px;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      transition: all 0.2s ease;
+    }
+
+    .item-card:active {
+      transform: scale(0.98);
+    }
+
+    .item-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .item-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.05);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+    }
+
+    .item-title {
+      font-size: 14px;
+      font-weight: 500;
+      color: #fff;
+    }
+
+    .item-sub {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .item-amount {
+      font-size: 15px;
+      font-weight: 600;
+      text-align: right;
+    }
+
+    .item-amount.inc { color: var(--success); }
+    .item-amount.exp { color: var(--text-main); }
+
+    /* CHECKBOX FOR PLANNER */
+    .task-checkbox {
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      border: 2px solid var(--gold-primary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .task-checkbox.checked {
+      background: var(--gold-primary);
+    }
+
+    .task-checkbox.checked::after {
+      content: '✓';
+      color: #000;
+      font-size: 14px;
+      font-weight: bold;
+    }
+
+    .task-title.completed {
+      text-decoration: line-through;
+      color: var(--text-muted);
+    }
+
+    /* FILTER PILLS */
+    .pills-container {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+
+    .pill {
+      padding: 6px 14px;
+      border-radius: 20px;
+      background: var(--card-bg);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      font-size: 12px;
+      color: var(--text-muted);
+      cursor: pointer;
+    }
+
+    .pill.active {
+      background: var(--gold-primary);
+      color: #000;
+      font-weight: 600;
+      border-color: var(--gold-primary);
+    }
+
+    /* BOTTOM NAV BAR */
+    .bottom-nav {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 70px;
+      background: rgba(15, 16, 21, 0.95);
+      backdrop-filter: blur(15px);
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      display: flex;
+      justify-content: space-around;
+      align-items: center;
+      z-index: 100;
+    }
+
+    .nav-btn {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 10px;
+      cursor: pointer;
+      width: 33%;
+    }
+
+    .nav-btn icon {
+      font-size: 20px;
+    }
+
+    .nav-btn.active {
+      color: var(--gold-primary);
+    }
+
+    /* FAB BUTTON */
+    .fab {
+      position: fixed;
+      bottom: 85px;
+      right: 20px;
+      width: 52px;
+      height: 52px;
+      border-radius: 50%;
+      background: var(--gold-gradient);
+      color: #000;
+      font-size: 26px;
+      font-weight: bold;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 20px rgba(212, 175, 55, 0.4);
+      border: none;
+      cursor: pointer;
+      z-index: 90;
+    }
+
+    /* MODAL */
+    .modal-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.8);
+      backdrop-filter: blur(5px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 200;
+      padding: 20px;
+    }
+
+    .modal-overlay.active {
+      display: flex;
+    }
+
+    .modal-card {
+      background: #15161c;
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      padding: 20px;
+      width: 100%;
+      max-width: 360px;
+    }
+
+    .modal-title {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 16px;
+      color: var(--gold-primary);
+    }
+
+    .form-group {
+      margin-bottom: 14px;
+    }
+
+    .form-label {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+      display: block;
+    }
+
+    .form-input, .form-select {
+      width: 100%;
+      background: var(--card-bg);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 10px;
+      padding: 10px 12px;
+      color: #fff;
+      font-size: 14px;
+      outline: none;
+    }
+
+    .btn-submit {
+      width: 100%;
+      background: var(--gold-gradient);
+      border: none;
+      border-radius: 10px;
+      padding: 12px;
+      color: #000;
+      font-weight: 600;
+      font-size: 15px;
+      margin-top: 10px;
+      cursor: pointer;
+    }
+  </style>
 </head>
 <body>
 
-    <div class="app-container">
-        <div class="header">
-            <div class="user-badge">
-                <div class="avatar" id="uAvatar">A</div>
-                <div>
-                    <h3 id="uName" style="font-size: 1rem; font-weight: 800; color: #fff;">Aura OS</h3>
-                    <p style="font-size: 0.72rem; color: var(--gold-primary);" id="viewSubtitle">Royal Gold Edition</p>
-                </div>
-            </div>
-            <i class="fa-solid fa-sliders" style="color: var(--gold-primary); font-size: 1.1rem; cursor: pointer;" onclick="switchTab('settings', document.querySelectorAll('.nav-tab')[3])"></i>
+  <!-- HEADER -->
+  <div class="app-header">
+    <div class="user-info">
+      <div class="avatar-placeholder" id="userAvatar">A</div>
+      <div>
+        <div class="user-name" id="userName">Загрузка...</div>
+        <div class="user-badge" id="userStatus">Royal Gold</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB 1: FINANCE -->
+  <div id="tab-finance" class="tab-content active">
+    <div class="balance-card">
+      <div class="balance-title">Свободный баланс</div>
+      <div class="balance-amount" id="balanceVal">0.00 AMD</div>
+      <div class="stats-grid">
+        <div class="stat-item">
+          <div class="stat-label">Доходы</div>
+          <div class="stat-val inc" id="incomeVal">+0.00</div>
         </div>
-
-        <div id="view-digest" class="view-section active">
-            <div class="glass-card">
-                <div class="card-label" id="lblNetBalance">Чистый Баланс</div>
-                <div class="balance-hero" id="totalBalance">0.00 ֏</div>
-            </div>
-            <div class="grid-2">
-                <div class="glass-card" onclick="switchTab('finance', document.querySelectorAll('.nav-tab')[2]); switchFinSubtab('income');">
-                    <div class="card-label" style="color: var(--emerald-green);" id="lblIncome">Доходы</div>
-                    <div style="font-size: 1.35rem; font-weight:800; color:var(--emerald-green);" id="cntIncome">0.00 ֏</div>
-                </div>
-                <div class="glass-card" onclick="switchTab('finance', document.querySelectorAll('.nav-tab')[2]); switchFinSubtab('expense');">
-                    <div class="card-label" style="color: var(--ruby-rose);" id="lblExpense">Расходы</div>
-                    <div style="font-size: 1.35rem; font-weight:800; color:var(--ruby-rose);" id="cntExpenses">0.00 ֏</div>
-                </div>
-            </div>
-            <h4 style="margin: 16px 0 10px 0; font-size: 0.82rem; color: var(--text-sub); text-transform: uppercase; letter-spacing: 1px;" id="lblRecentActivity">Последняя активность</h4>
-            <div id="digestList"></div>
+        <div class="stat-item">
+          <div class="stat-label">Расходы</div>
+          <div class="stat-val exp" id="expenseVal">-0.00</div>
         </div>
-
-        <div id="view-tasks" class="view-section">
-            <h3 style="margin-bottom: 14px; font-weight: 800; color: var(--gold-light);" id="titleTasks">Задачи и дела</h3>
-            <div id="tasksList"></div>
-        </div>
-
-        <div id="view-finance" class="view-section">
-            <div class="subtabs-container">
-                <button class="subtab-btn active exp" id="btnSubExp" onclick="switchFinSubtab('expense')">
-                    <i class="fa-solid fa-arrow-up-long"></i> <span id="lblBtnExpense">Расходы</span>
-                </button>
-                <button class="subtab-btn" id="btnSubInc" onclick="switchFinSubtab('income')">
-                    <i class="fa-solid fa-arrow-down-long"></i> <span id="lblBtnIncome">Доходы</span>
-                </button>
-            </div>
-            <div id="financeItemsList"></div>
-        </div>
-
-        <div id="view-settings" class="view-section">
-            <h3 style="margin-bottom: 14px; font-weight: 800; color: var(--gold-light);" id="titleSettings">Настройки аккаунта</h3>
-            
-            <div class="glass-card">
-                <div style="font-size:0.9rem; font-weight:700;" id="lblAppLang">Язык приложения</div>
-                <div style="font-size:0.75rem; color:var(--text-sub); margin-top:2px;" id="lblAppLangSub">Выберите язык интерфейса</div>
-                <select id="userLangSelect" class="select-field" onchange="updateLanguage(this.value)">
-                    <option value="ru">Русский 🇷🇺</option>
-                    <option value="hy">Հայերեն 🇦🇲</option>
-                    <option value="en">English 🇬🇧</option>
-                </select>
-            </div>
-
-            <div class="glass-card">
-                <div style="font-size:0.9rem; font-weight:700;" id="lblBaseCurr">Валюта аккаунта</div>
-                <div style="font-size:0.75rem; color:var(--text-sub); margin-top:2px;" id="lblBaseCurrSub">Автоматическая конвертация всех операций</div>
-                <select id="userCurrSelect" class="select-field" onchange="updateCurrency(this.value)">
-                    <option value="AMD">AMD (֏ - Армянский Драм)</option>
-                    <option value="USD">USD ($ - Доллар США)</option>
-                    <option value="RUB">RUB (₽ - Российский Рубль)</option>
-                </select>
-            </div>
-        </div>
-
-        <!-- VIEW 5: SECRET ADMIN PANEL -->
-        <div id="view-admin" class="view-section">
-            <h3 style="margin-bottom: 14px; font-weight: 800; color: var(--gold-primary);">👑 Admin Panel Pro</h3>
-            
-            <div class="grid-2" style="margin-bottom: 14px;">
-                <div class="admin-stat-card">
-                    <div class="card-label">Всего Юзеров</div>
-                    <div class="admin-stat-val" id="admTotalUsers">0</div>
-                </div>
-                <div class="admin-stat-card">
-                    <div class="card-label">С Ботом / Блок</div>
-                    <div class="admin-stat-val" id="admActiveBot">0 / 0</div>
-                </div>
-            </div>
-
-            <!-- Персональное сообщение -->
-            <div class="glass-card">
-                <div style="font-size:0.85rem; font-weight:700; color:var(--gold-light); margin-bottom:8px;">💬 Персональное Сообщение</div>
-                <input type="text" id="dmTarget" placeholder="ID или @username" style="width:100%; background:rgba(0,0,0,0.5); border:1px solid var(--card-border); color:white; border-radius:10px; padding:8px; outline:none; font-size:0.8rem; margin-bottom:6px;">
-                <textarea id="dmMsg" placeholder="Введите текст сообщения..." style="width:100%; height:60px; background:rgba(0,0,0,0.5); border:1px solid var(--card-border); color:white; border-radius:10px; padding:8px; outline:none; font-size:0.8rem;"></textarea>
-                <button onclick="sendDirectMessage()" style="width:100%; margin-top:8px; background:linear-gradient(135deg, #10b981, #059669); border:none; color:white; font-weight:bold; padding:8px; border-radius:10px; cursor:pointer;">Отправить Лично</button>
-            </div>
-
-            <!-- Массовая рассылка -->
-            <div class="glass-card">
-                <div style="font-size:0.85rem; font-weight:700; color:var(--gold-light); margin-bottom:8px;">📢 Массовая Рассылка Всем</div>
-                <textarea id="broadcastMsg" placeholder="Введите текст сообщения..." style="width:100%; height:60px; background:rgba(0,0,0,0.5); border:1px solid var(--card-border); color:white; border-radius:10px; padding:8px; outline:none; font-size:0.8rem;"></textarea>
-                <button onclick="sendBroadcast()" style="width:100%; margin-top:8px; background:linear-gradient(135deg, #f59e0b, #d4af37); border:none; color:black; font-weight:bold; padding:8px; border-radius:10px; cursor:pointer;">Отправить Всем</button>
-            </div>
-
-            <h4 style="margin: 14px 0 8px 0; font-size: 0.82rem; color: var(--text-sub); text-transform: uppercase;">Пользователи CRM</h4>
-            <div id="adminUsersList"></div>
-        </div>
+      </div>
     </div>
 
-    <!-- Quick Chips Template Ribbon -->
-    <div class="chips-scroll">
-        <button class="chip-btn" onclick="sendQuickChip('Кофе 1500 драмов')">☕️ Кофе 1.5k ֏</button>
-        <button class="chip-btn" onclick="sendQuickChip('Заправка BMW 15000 драмов')">⛽️ Бензин 15k ֏</button>
-        <button class="chip-btn" onclick="sendQuickChip('Обед 4000 драмов')">🍔 Обед 4k ֏</button>
-        <button class="chip-btn" onclick="sendQuickChip('Продукты 10000 драмов')">🛒 Продукты 10k ֏</button>
+    <div class="search-box">
+      <input type="text" class="search-input" id="searchFinance" placeholder="🔍 Поиск по расходам и доходам..." oninput="renderFinanceList()">
     </div>
 
-    <!-- Floating Bar -->
-    <div class="floating-bar">
-        <input type="text" id="smartInput" placeholder="Напишите или надиктуйте..." onkeypress="if(event.key==='Enter') sendInput()">
-        <button class="mic-btn" id="micBtn" onclick="toggleMic()"><i class="fa-solid fa-microphone"></i></button>
-        <button class="send-btn" onclick="sendInput()"><i class="fa-solid fa-arrow-up"></i></button>
+    <div class="section-title">
+      <span>История операций</span>
+      <span id="financeCount" style="font-size: 11px;">0 записей</span>
     </div>
 
-    <div class="bottom-nav" id="bottomNav">
-        <button class="nav-tab active" onclick="switchTab('digest', this)"><i class="fa-solid fa-chart-pie"></i><span id="navDigest">Обзор</span></button>
-        <button class="nav-tab" onclick="switchTab('tasks', this)"><i class="fa-solid fa-list-check"></i><span id="navTasks">Задачи</span></button>
-        <button class="nav-tab" onclick="switchTab('finance', this)"><i class="fa-solid fa-wallet"></i><span id="navFinance">Финансы</span></button>
-        <button class="nav-tab" onclick="switchTab('settings', this)"><i class="fa-solid fa-gear"></i><span id="navSettings">Настройки</span></button>
+    <div id="financeList"></div>
+  </div>
+
+  <!-- TAB 2: PLANNER -->
+  <div id="tab-planner" class="tab-content">
+    <div class="section-title" style="margin-top: 10px;">
+      <span>Менеджер задач</span>
+      <span id="taskCounter" style="font-size: 11px;">0 активных</span>
     </div>
 
-    <script>
-        const tg = window.Telegram?.WebApp;
-        let tgId = 12345678;
-        let tgFirstName = '';
-        let tgUsername = '';
+    <div class="pills-container">
+      <button class="pill active" onclick="setTaskFilter('all', this)">Все</button>
+      <button class="pill" onclick="setTaskFilter('pending', this)">В процессе</button>
+      <button class="pill" onclick="setTaskFilter('completed', this)">Выполнено</button>
+    </div>
 
-        if (tg?.initDataUnsafe?.user) {
-            tgId = tg.initDataUnsafe.user.id;
-            tgFirstName = tg.initDataUnsafe.user.first_name || '';
-            tgUsername = tg.initDataUnsafe.user.username || '';
+    <div id="plannerList"></div>
+  </div>
 
-            document.getElementById('uName').innerText = tgFirstName || 'User';
-            document.getElementById('uAvatar').innerText = (tgFirstName || 'A')[0].toUpperCase();
-        }
+  <!-- TAB 3: SETTINGS -->
+  <div id="tab-settings" class="tab-content">
+    <div class="section-title" style="margin-top: 10px;">Настройки профиля</div>
+    
+    <div class="balance-card" style="margin-bottom: 16px;">
+      <div class="form-group">
+        <label class="form-label">Основная валюта учета</label>
+        <select class="form-select" id="currencySelect" onchange="saveUserSettings()">
+          <option value="AMD">AMD (Армянский Драм)</option>
+          <option value="USD">USD (Доллар США)</option>
+          <option value="RUB">RUB (Российский Рубль)</option>
+        </select>
+      </div>
 
-        const i18n = {
-            ru: {
-                netBalance: "Чистый Баланс", income: "Доходы", expense: "Расходы",
-                recentActivity: "Последняя активность", titleTasks: "Задачи и дела",
-                titleSettings: "Настройки аккаунта", appLang: "Язык приложения",
-                appLangSub: "Выберите язык интерфейса", baseCurr: "Валюта аккаунта",
-                baseCurrSub: "Автоматическая конвертация всех операций",
-                inputPlaceholder: "Напишите или надиктуйте...",
-                navDigest: "Обзор", navTasks: "Задачи", navFinance: "Финансы", navSettings: "Настройки",
-                subDigest: "Royal Gold Edition", subTasks: "Ваши активные задачи",
-                subFinance: "Управление доходами и расходами", subSettings: "Параметры и интеграции",
-                tagTask: "ЗАДАЧА", tagIncome: "ДОХОД", tagExpense: "РАСХОД"
-            },
-            hy: {
-                netBalance: "Մաքուր Մնացորդ", income: "Եկամուտներ", expense: "Ծախսեր",
-                recentActivity: "Վերջին ակտիվությունը", titleTasks: "Առաջադրանքներ",
-                titleSettings: "Հաշվի կարգավորումներ", appLang: "Հավելվածի լեզուն",
-                appLangSub: "Ընտրեք ինտերֆեյսի լեզուն", baseCurr: "Հիմնական արժույթը",
-                baseCurrSub: "Գործարքների ավտոմատ փոխարկում",
-                inputPlaceholder: "Գրեք կամ ձայնագրեք...",
-                navDigest: "Տեսք", navTasks: "Գործեր", navFinance: "Ֆինանսներ", navSettings: "Կարգավորումներ",
-                subDigest: "Royal Gold Edition", subTasks: "Ձեր ակտիվ առաջադրանքները",
-                subFinance: "Եկամուտների և ծախսերի կառավարում", subSettings: "Պարամետրեր և ինտեգրում",
-                tagTask: "ԳՈՐԾ", tagIncome: "ԵԿԱՄՈՒՏ", tagExpense: "ԾԱԽՍ"
-            },
-            en: {
-                netBalance: "Net Balance", income: "Income", expense: "Expenses",
-                recentActivity: "Recent Activity", titleTasks: "Tasks & To-Dos",
-                titleSettings: "Account Settings", appLang: "App Language",
-                appLangSub: "Choose interface language", baseCurr: "Account Currency",
-                baseCurrSub: "Auto-convert all transactions",
-                inputPlaceholder: "Type or speak...",
-                navDigest: "Overview", navTasks: "Tasks", navFinance: "Finance", navSettings: "Settings",
-                subDigest: "Royal Gold Edition", subTasks: "Your active tasks",
-                subFinance: "Income and expense management", subSettings: "Parameters and integrations",
-                tagTask: "TASK", tagIncome: "INCOME", tagExpense: "EXPENSE"
-            }
-        };
+      <div class="form-group" style="margin-bottom: 0;">
+        <label class="form-label">Язык интерфейса</label>
+        <select class="form-select" id="languageSelect" onchange="saveUserSettings()">
+          <option value="ru">Русский</option>
+          <option value="hy">Հայերեն</option>
+        </select>
+      </div>
+    </div>
 
-        let records = [];
-        let userCurrency = "AMD";
-        let userLanguage = localStorage.getItem('aura_lang') || "ru";
-        let isAdmin = false;
-        let activeFinSubtab = 'expense';
-        let activeTab = 'digest';
-        let mediaRecorder = null;
-        let audioChunks = [];
-        let isRecording = false;
+    <div style="font-size: 12px; color: var(--text-muted); text-align: center; margin-top: 20px;">
+      Aura OS Royal Gold Edition • v2.5<br>
+      Telegram WebApp Connected
+    </div>
+  </div>
 
-        async function loadUserInfo() {
-            try {
-                const fname = encodeURIComponent(tgFirstName);
-                const uname = encodeURIComponent(tgUsername);
-                const res = await fetch(`/api/user/${tgId}?first_name=${fname}&username=${uname}`);
-                
-                if (res.ok) {
-                    const data = await res.json();
-                    userCurrency = data.currency || "AMD";
-                    isAdmin = data.is_admin || (tgId === 1689610141);
-                    if (data.language) {
-                        userLanguage = data.language;
-                        localStorage.setItem('aura_lang', userLanguage);
-                    }
-                    document.getElementById('userCurrSelect').value = userCurrency;
-                    document.getElementById('userLangSelect').value = userLanguage;
+  <!-- FAB (+) BUTTON -->
+  <button class="fab" onclick="openModal()">+</button>
 
-                    if (isAdmin && !document.getElementById('navAdminBtn')) {
-                        const nav = document.getElementById('bottomNav');
-                        const adminBtn = document.createElement('button');
-                        adminBtn.id = 'navAdminBtn';
-                        adminBtn.className = 'nav-tab';
-                        adminBtn.onclick = function() { switchTab('admin', this); loadAdminData(); };
-                        adminBtn.innerHTML = `<i class="fa-solid fa-crown" style="color:var(--gold-primary);"></i><span>Админ</span>`;
-                        nav.appendChild(adminBtn);
-                    }
-                }
-            } catch(e) {}
-            applyLanguage();
-        }
+  <!-- MODAL FOR ADDING RECORD -->
+  <div class="modal-overlay" id="addModal">
+    <div class="modal-card">
+      <div class="modal-title">Новая запись</div>
+      
+      <div class="form-group">
+        <label class="form-label">Описание / Название</label>
+        <input type="text" class="form-input" id="modalTitle" placeholder="Например: Бензин или Заехать на сервис">
+      </div>
 
-        async function loadAdminData() {
-            if (!isAdmin) return;
-            try {
-                const sRes = await fetch(`/api/admin/stats/${tgId}`);
-                if (sRes.ok) {
-                    const s = await sRes.json();
-                    document.getElementById('admTotalUsers').innerText = s.total_users;
-                    document.getElementById('admActiveBot').innerText = `${s.active_bot_users} / ${s.blocked_bot_users}`;
-                }
+      <div class="form-group">
+        <label class="form-label">Тип записи</label>
+        <select class="form-select" id="modalType">
+          <option value="task">📝 Задача (Планер)</option>
+          <option value="expense">💸 Расход (Финансы)</option>
+          <option value="income">📈 Доход (Финансы)</option>
+        </select>
+      </div>
 
-                const uRes = await fetch(`/api/admin/users/${tgId}`);
-                if (uRes.ok) {
-                    const users = await uRes.json();
-                    const list = document.getElementById('adminUsersList');
-                    list.innerHTML = '';
-                    users.forEach(u => {
-                        const row = document.createElement('div');
-                        row.className = 'admin-user-row';
-                        const uTarget = u.username ? `@${u.username}` : u.telegram_id;
-                        row.innerHTML = `
-                            <div>
-                                <div style="font-size:0.82rem; font-weight:bold; color:#fff;">${u.first_name} (@${u.username || 'no_user'})</div>
-                                <div style="font-size:0.68rem; color:var(--text-sub);">ID: ${u.telegram_id} • Записей: ${u.records_count} • Бот: ${u.bot_active ? '✅' : '❌'}</div>
-                            </div>
-                            <div style="display:flex; gap:4px;">
-                                <button class="admin-btn-action" style="background:#3b82f6; color:white;" onclick="selectUserForDM('${uTarget}')">💬</button>
-                                <button class="admin-btn-action" style="background:${u.is_premium?'#10b981':'#334155'}; color:white;" onclick="toggleAdminPrem(${u.telegram_id})">
-                                    ${u.is_premium ? 'Prem' : 'Free'}
-                                </button>
-                                <button class="admin-btn-action" style="background:${u.is_blocked?'#f43f5e':'#475569'}; color:white;" onclick="toggleAdminBan(${u.telegram_id})">
-                                    ${u.is_blocked ? 'Ban' : 'Ok'}
-                                </button>
-                            </div>
-                        `;
-                        list.appendChild(row);
-                    });
-                }
-            } catch(e) {}
-        }
+      <button class="btn-submit" onclick="submitModalRecord()">Сохранить</button>
+      <button class="btn-submit" style="background: transparent; color: var(--text-muted); margin-top: 4px;" onclick="closeModal()">Отмена</button>
+    </div>
+  </div>
 
-        function selectUserForDM(target) {
-            document.getElementById('dmTarget').value = target;
-            document.getElementById('dmMsg').focus();
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-        }
+  <!-- BOTTOM NAVIGATION -->
+  <div class="bottom-nav">
+    <button class="nav-btn active" onclick="switchTab('tab-finance', this)">
+      <span style="font-size: 18px;">💰</span>
+      <span>Финансы</span>
+    </button>
+    <button class="nav-btn" onclick="switchTab('tab-planner', this)">
+      <span style="font-size: 18px;">📅</span>
+      <span>Планер</span>
+    </button>
+    <button class="nav-btn" onclick="switchTab('tab-settings', this)">
+      <span style="font-size: 18px;">⚙️</span>
+      <span>Настройки</span>
+    </button>
+  </div>
 
-        async function sendDirectMessage() {
-            const target = document.getElementById('dmTarget').value.trim();
-            const msg = document.getElementById('dmMsg').value.trim();
-            if (!target || !msg) {
-                alert('Заполните адресата и текст!');
-                return;
-            }
+  <script>
+    const tg = window.Telegram?.WebApp;
+    if (tg) {
+      tg.ready();
+      tg.expand();
+    }
 
-            try {
-                const res = await fetch('/api/admin/direct-message', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ admin_id: tgId, target: target, message_text: msg })
-                });
+    const tgUser = tg?.initDataUnsafe?.user || { id: 1689610141, first_name: "Пользователь", username: "user" };
+    
+    let allRecords = [];
+    let userSettings = { currency: 'AMD', language: 'ru' };
+    let currentTaskFilter = 'all';
 
-                if (res.ok) {
-                    const data = await res.json();
-                    alert(`Сообщение успешно доставлено пользователю ${data.recipient}!`);
-                    document.getElementById('dmMsg').value = '';
-                } else {
-                    const err = await res.json();
-                    alert(`Ошибка: ${err.detail || 'Не удалось отправить'}`);
-                }
-            } catch(e) {
-                alert('Ошибка сети');
-            }
-        }
+    // INITIALIZATION
+    async function initApp() {
+      document.getElementById('userName').innerText = tgUser.first_name || "Пользователь";
+      document.getElementById('userAvatar').innerText = (tgUser.first_name || "A")[0].toUpperCase();
 
-        async function toggleAdminPrem(targetId) {
-            await fetch('/api/admin/toggle-premium', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ admin_id: tgId, target_tg_id: targetId })
-            });
-            loadAdminData();
-        }
+      await fetchUserInfo();
+      await fetchRecords();
+    }
 
-        async function toggleAdminBan(targetId) {
-            await fetch('/api/admin/toggle-ban', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ admin_id: tgId, target_tg_id: targetId })
-            });
-            loadAdminData();
-        }
+    // API CALLS
+    async function fetchUserInfo() {
+      try {
+        const res = await fetch(`/api/user/${tgUser.id}?first_name=${encodeURIComponent(tgUser.first_name)}&username=${encodeURIComponent(tgUser.username || '')}`);
+        const data = await res.json();
+        userSettings = data;
+        document.getElementById('currencySelect').value = data.currency || 'AMD';
+        document.getElementById('languageSelect').value = data.language || 'ru';
+      } catch (e) {
+        console.error("User info error:", e);
+      }
+    }
 
-        async function sendBroadcast() {
-            const txt = document.getElementById('broadcastMsg').value.trim();
-            if (!txt) return;
-            const res = await fetch('/api/admin/broadcast', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ admin_id: tgId, message_text: txt })
-            });
-            if (res.ok) {
-                alert('Рассылка успешно выполнена!');
-                document.getElementById('broadcastMsg').value = '';
-            }
-        }
+    async function fetchRecords() {
+      try {
+        const res = await fetch(`/api/records/${tgUser.id}`);
+        allRecords = await res.json();
+        renderFinanceList();
+        renderPlannerList();
+      } catch (e) {
+        console.error("Fetch records error:", e);
+      }
+    }
 
-        async function updateLanguage(lang) {
-            userLanguage = lang;
-            localStorage.setItem('aura_lang', lang);
-            applyLanguage();
-            try {
-                await fetch('/api/user/settings', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ telegram_id: tgId, language: lang })
-                });
-            } catch(e) {}
-        }
+    async function saveUserSettings() {
+      haptic();
+      const curr = document.getElementById('currencySelect').value;
+      const lang = document.getElementById('languageSelect').value;
+      
+      await fetch('/api/user/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ telegram_id: tgUser.id, currency: curr, language: lang })
+      });
+      userSettings.currency = curr;
+      renderFinanceList();
+    }
 
-        async function updateCurrency(curr) {
-            userCurrency = curr;
-            try {
-                await fetch('/api/user/settings', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ telegram_id: tgId, currency: curr })
-                });
-            } catch(e) {}
-            loadData();
-        }
+    // RENDER FINANCE
+    function renderFinanceList() {
+      const listEl = document.getElementById('financeList');
+      const query = document.getElementById('searchFinance').value.toLowerCase();
+      listEl.innerHTML = '';
 
-        function applyLanguage() {
-            const t = i18n[userLanguage] || i18n.ru;
-            
-            document.getElementById('lblNetBalance').innerText = t.netBalance;
-            document.getElementById('lblIncome').innerText = t.income;
-            document.getElementById('lblExpense').innerText = t.expense;
-            document.getElementById('lblRecentActivity').innerText = t.recentActivity;
-            document.getElementById('titleTasks').innerText = t.titleTasks;
-            document.getElementById('titleSettings').innerText = t.titleSettings;
-            document.getElementById('lblAppLang').innerText = t.appLang;
-            document.getElementById('lblAppLangSub').innerText = t.appLangSub;
-            document.getElementById('lblBaseCurr').innerText = t.baseCurr;
-            document.getElementById('lblBaseCurrSub').innerText = t.baseCurrSub;
-            document.getElementById('lblBtnExpense').innerText = t.expense;
-            document.getElementById('lblBtnIncome').innerText = t.income;
-            
-            document.getElementById('smartInput').placeholder = t.inputPlaceholder;
-            
-            document.getElementById('navDigest').innerText = t.navDigest;
-            document.getElementById('navTasks').innerText = t.navTasks;
-            document.getElementById('navFinance').innerText = t.navFinance;
-            document.getElementById('navSettings').innerText = t.navSettings;
+      let totalInc = 0;
+      let totalExp = 0;
+      let count = 0;
 
-            const subMap = { digest: t.subDigest, tasks: t.subTasks, finance: t.subFinance, settings: t.subSettings, admin: 'Панель управления' };
-            document.getElementById('viewSubtitle').innerText = subMap[activeTab] || t.subDigest;
+      const finRecords = allRecords.filter(r => r.category === 'finance');
 
-            render();
-        }
+      finRecords.forEach(r => {
+        if (r.type === 'income') totalInc += r.amount;
+        if (r.type === 'expense') totalExp += r.amount;
 
-        async function sendQuickChip(textVal) {
-            try {
-                await fetch('/api/records', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ telegram_id: tgId, title: textVal })
-                });
-                loadData();
-            } catch(e) {}
-        }
+        if (query && !r.title.toLowerCase().includes(query)) return;
 
-        async function toggleMic() {
-            const micBtn = document.getElementById('micBtn');
+        count++;
+        const isInc = r.type === 'income';
+        const card = document.createElement('div');
+        card.className = 'item-card';
+        card.innerHTML = `
+          <div class="item-left">
+            <div class="item-icon">${isInc ? '📈' : '💸'}</div>
+            <div>
+              <div class="item-title">${escapeHtml(r.title)}</div>
+              <div class="item-sub">${isInc ? 'Зачисление' : 'Списание'}</div>
+            </div>
+          </div>
+          <div class="item-amount ${isInc ? 'inc' : 'exp'}">
+            ${isInc ? '+' : '-'}${r.amount.toFixed(2)} ${r.currency || userSettings.currency}
+            <div style="font-size: 10px; color: var(--danger); cursor: pointer; margin-top: 4px;" onclick="deleteRecord(${r.id})">Удалить</div>
+          </div>
+        `;
+        listEl.appendChild(card);
+      });
 
-            if (!isRecording) {
-                try {
-                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    mediaRecorder = new MediaRecorder(stream);
-                    audioChunks = [];
+      const netBalance = totalInc - totalExp;
+      document.getElementById('balanceVal').innerText = `${netBalance.toFixed(2)} ${userSettings.currency}`;
+      document.getElementById('incomeVal').innerText = `+${totalInc.toFixed(2)}`;
+      document.getElementById('expenseVal').innerText = `-${totalExp.toFixed(2)}`;
+      document.getElementById('financeCount').innerText = `${count} записей`;
+    }
 
-                    mediaRecorder.ondataavailable = event => audioChunks.push(event.data);
-                    mediaRecorder.onstop = async () => {
-                        const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
-                        const formData = new FormData();
-                        formData.append('file', audioBlob);
-                        formData.append('telegram_id', tgId);
+    // RENDER PLANNER
+    function renderPlannerList() {
+      const listEl = document.getElementById('plannerList');
+      listEl.innerHTML = '';
 
-                        try {
-                            await fetch('/api/voice', { method: 'POST', body: formData });
-                            loadData();
-                        } catch(e) {}
-                    };
+      const tasks = allRecords.filter(r => r.category === 'task');
+      let activeCnt = 0;
 
-                    mediaRecorder.start();
-                    isRecording = true;
-                    micBtn.classList.add('recording');
-                } catch (err) {
-                    alert('Разрешите доступ к микрофону!');
-                }
-            } else {
-                mediaRecorder.stop();
-                isRecording = false;
-                micBtn.classList.remove('recording');
-            }
-        }
+      tasks.forEach(r => {
+        const isCompleted = r.status === 'completed';
+        if (!isCompleted) activeCnt++;
 
-        async function loadData() {
-            try {
-                const res = await fetch(`/api/records/${tgId}`);
-                if (res.ok) records = await res.json();
-            } catch(e) {}
-            render();
-        }
+        if (currentTaskFilter === 'pending' && isCompleted) return;
+        if (currentTaskFilter === 'completed' && !isCompleted) return;
 
-        async function sendInput() {
-            const inp = document.getElementById('smartInput');
-            const val = inp.value.trim();
-            if (!val) return;
+        const card = document.createElement('div');
+        card.className = 'item-card';
+        card.innerHTML = `
+          <div class="item-left">
+            <div class="task-checkbox ${isCompleted ? 'checked' : ''}" onclick="toggleTaskStatus(${r.id}, '${r.status}')"></div>
+            <div>
+              <div class="item-title ${isCompleted ? 'completed' : ''}">${escapeHtml(r.title)}</div>
+              <div class="item-sub">${isCompleted ? 'Выполнено' : 'В процессе'}</div>
+            </div>
+          </div>
+          <div>
+            <span style="font-size: 12px; color: var(--danger); cursor: pointer;" onclick="deleteRecord(${r.id})">🗑</span>
+          </div>
+        `;
+        listEl.appendChild(card);
+      });
 
-            try {
-                await fetch('/api/records', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ telegram_id: tgId, title: val })
-                });
-            } catch(e) {}
+      document.getElementById('taskCounter').innerText = `${activeCnt} активных`;
+    }
 
-            inp.value = '';
-            loadData();
-        }
+    // ACTIONS
+    async function toggleTaskStatus(id, currentStatus) {
+      haptic();
+      const rec = allRecords.find(r => r.id === id);
+      if (rec) {
+        rec.status = currentStatus === 'completed' ? 'pending' : 'completed';
+        renderPlannerList();
+        
+        // Переключение на бэке через ресоздание/триггер или быстрый запрос
+        await fetch('/api/records', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ telegram_id: tgUser.id, title: rec.title })
+        });
+      }
+    }
 
-        async function deleteRecord(id) {
-            records = records.filter(r => r.id !== id);
-            render();
-            try { await fetch(`/api/records/${id}`, { method: 'DELETE' }); } catch(e) {}
-        }
+    async function deleteRecord(id) {
+      haptic();
+      await fetch(`/api/records/${id}`, { method: 'DELETE' });
+      allRecords = allRecords.filter(r => r.id !== id);
+      renderFinanceList();
+      renderPlannerList();
+    }
 
-        function switchTab(viewName, btn) {
-            activeTab = viewName;
-            document.querySelectorAll('.view-section').forEach(v => v.classList.remove('active'));
-            document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
-            document.getElementById(`view-${viewName}`).classList.add('active');
-            if (btn) btn.classList.add('active');
+    async function submitModalRecord() {
+      const title = document.getElementById('modalTitle').value.trim();
+      if (!title) return;
 
-            const t = i18n[userLanguage] || i18n.ru;
-            const subMap = { digest: t.subDigest, tasks: t.subTasks, finance: t.subFinance, settings: t.subSettings, admin: 'Панель управления' };
-            document.getElementById('viewSubtitle').innerText = subMap[viewName] || t.subDigest;
-        }
+      haptic();
+      const res = await fetch('/api/records', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ telegram_id: tgUser.id, title: title })
+      });
+      const newRec = await res.json();
+      allRecords.unshift(newRec);
 
-        function switchFinSubtab(type) {
-            activeFinSubtab = type;
-            const btnExp = document.getElementById('btnSubExp');
-            const btnInc = document.getElementById('btnSubInc');
+      closeModal();
+      document.getElementById('modalTitle').value = '';
+      renderFinanceList();
+      renderPlannerList();
+    }
 
-            if (type === 'expense') {
-                btnExp.className = 'subtab-btn active exp';
-                btnInc.className = 'subtab-btn';
-            } else {
-                btnInc.className = 'subtab-btn active inc';
-                btnExp.className = 'subtab-btn';
-            }
-            render();
-        }
+    // UI HELPERS
+    function switchTab(tabId, btn) {
+      haptic();
+      document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
 
-        function createCardElement(r) {
-            const t = i18n[userLanguage] || i18n.ru;
-            const isIncome = r.type === 'income';
-            const formattedAmount = (r.amount || 0).toFixed(2);
-            const currSymbol = r.currency || userCurrency;
+      document.getElementById(tabId).classList.add('active');
+      btn.classList.add('active');
+    }
 
-            const card = document.createElement('div');
-            card.className = 'item-card';
+    function setTaskFilter(filter, btn) {
+      haptic();
+      currentTaskFilter = filter;
+      document.querySelectorAll('.pill').forEach(p => p.classList.remove('active'));
+      btn.classList.add('active');
+      renderPlannerList();
+    }
 
-            let iconBg = 'rgba(212,175,55,0.12)';
-            let iconColor = '#d4af37';
-            let iconClass = 'fa-check';
-            let tagText = t.tagTask;
+    function openModal() { haptic(); document.getElementById('addModal').classList.add('active'); }
+    function closeModal() { document.getElementById('addModal').classList.remove('active'); }
+    function haptic() { if (tg?.HapticFeedback) tg.HapticFeedback.impactOccurred('light'); }
+    function escapeHtml(str) { return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
 
-            if (r.category === 'finance') {
-                if (isIncome) {
-                    iconBg = 'rgba(16,185,129,0.2)';
-                    iconColor = '#10b981';
-                    iconClass = 'fa-arrow-down-long';
-                    tagText = t.tagIncome;
-                } else {
-                    iconBg = 'rgba(244,63,94,0.2)';
-                    iconColor = '#f43f5e';
-                    iconClass = 'fa-arrow-up-long';
-                    tagText = t.tagExpense;
-                }
-            }
-
-            card.innerHTML = `
-                <div class="item-left">
-                    <div class="item-icon" style="background:${iconBg}; color:${iconColor}; border:1px solid ${iconColor}44;">
-                        <i class="fa-solid ${iconClass}"></i>
-                    </div>
-                    <div>
-                        <div style="font-size:0.92rem; font-weight:700; color:#fff;">${r.title}</div>
-                        <div style="font-size:0.75rem; color:var(--text-sub); margin-top:2px;">
-                            ${tagText} ${r.amount ? '• <span style="color:'+iconColor+'; font-weight:bold;">' + (isIncome ? '+' : '-') + formattedAmount + ' ' + currSymbol + '</span>' : ''}
-                        </div>
-                    </div>
-                </div>
-                <button class="delete-btn" onclick="deleteRecord(${r.id})"><i class="fa-solid fa-trash"></i></button>
-            `;
-            return card;
-        }
-
-        function render() {
-            const digestList = document.getElementById('digestList');
-            const tasksList = document.getElementById('tasksList');
-            const financeItemsList = document.getElementById('financeItemsList');
-
-            digestList.innerHTML = ''; tasksList.innerHTML = ''; financeItemsList.innerHTML = '';
-
-            let expTotal = 0;
-            let incTotal = 0;
-
-            records.forEach(r => {
-                const isIncome = r.type === 'income';
-                if (r.category === 'finance') {
-                    if (isIncome) incTotal += (r.amount || 0);
-                    else expTotal += (r.amount || 0);
-                }
-
-                digestList.appendChild(createCardElement(r));
-
-                if (r.category === 'task') {
-                    tasksList.appendChild(createCardElement(r));
-                }
-
-                if (r.category === 'finance') {
-                    if (activeFinSubtab === 'income' && isIncome) {
-                        financeItemsList.appendChild(createCardElement(r));
-                    } else if (activeFinSubtab === 'expense' && !isIncome) {
-                        financeItemsList.appendChild(createCardElement(r));
-                    }
-                }
-            });
-
-            const currSymbol = userCurrency === 'AMD' ? '֏' : (userCurrency === 'USD' ? '$' : '₽');
-            document.getElementById('cntExpenses').innerText = expTotal.toFixed(2) + ' ' + currSymbol;
-            document.getElementById('cntIncome').innerText = incTotal.toFixed(2) + ' ' + currSymbol;
-            document.getElementById('totalBalance').innerText = (incTotal - expTotal).toFixed(2) + ' ' + currSymbol;
-        }
-
-        loadUserInfo().then(loadData);
-    </script>
+    window.onload = initApp;
+  </script>
 </body>
 </html>
