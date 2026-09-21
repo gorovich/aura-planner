@@ -29,18 +29,19 @@ class Record(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"))
-    category = Column(String, default="task")  # task, finance
-    type = Column(String, default="expense")   # expense, income
+    category = Column(String, default="task")          # 'task' или 'finance'
+    sub_category = Column(String, default="general")   # 'auto', 'food', 'rent', 'sub', 'general'
+    type = Column(String, default="expense")           # 'expense' или 'income'
     title = Column(String)
     amount = Column(Float, default=0.0)
     currency = Column(String, default="AMD")
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # --- ПОЛЯ ДЛЯ ПЛАНЕРА И НАПОМИНАНИЙ ---
-    status = Column(String, default="pending")        # 'pending' или 'completed'
-    due_date = Column(DateTime, nullable=True)        # Дата и время дедлайна / напоминания
-    is_recurring = Column(Boolean, default=False)     # Флаг повторяющегося платежа/задачи
-    recurrence_rule = Column(String, nullable=True)   # 'monthly', 'weekly', 'daily'
-    is_reminded = Column(Boolean, default=False)     # Было ли отправлено уведомление
+    status = Column(String, default="pending")         # 'pending' или 'completed'
+    due_date = Column(DateTime, nullable=True)         # Дата и время дедлайна / напоминания
+    is_recurring = Column(Boolean, default=False)      # Флаг повторяющегося платежа/задачи
+    recurrence_rule = Column(String, nullable=True)    # 'monthly', 'weekly', 'daily'
+    is_reminded = Column(Boolean, default=False)       # Было ли отправлено уведомление
 
     user = relationship("User", back_populates="records")
