@@ -55,6 +55,7 @@ def run_db_migrations():
             
             conn.execute(text("ALTER TABLE records ADD COLUMN IF NOT EXISTS type VARCHAR DEFAULT 'expense';"))
             conn.execute(text("ALTER TABLE records ADD COLUMN IF NOT EXISTS currency VARCHAR DEFAULT 'AMD';"))
+            conn.execute(text("ALTER TABLE records ADD COLUMN IF NOT EXISTS sub_category VARCHAR DEFAULT 'general';"))
             conn.execute(text("ALTER TABLE records ADD COLUMN IF NOT EXISTS status VARCHAR DEFAULT 'pending';"))
             conn.execute(text("ALTER TABLE records ADD COLUMN IF NOT EXISTS due_date TIMESTAMP;"))
             conn.execute(text("ALTER TABLE records ADD COLUMN IF NOT EXISTS is_recurring BOOLEAN DEFAULT FALSE;"))
@@ -89,7 +90,7 @@ async def check_reminders_and_deadlines():
                 user = db.query(models.User).filter(models.User.id == rec.user_id, models.User.bot_active == True).first()
                 if user:
                     icon = "⏰" if rec.category == "task" else "💳"
-                    msg = f"{icon} **Напоминание!**\n\n**{rec.title}**"
+                    msg = f"{icon} **Напоминание / Дедлайн!**\n\n**{rec.title}**"
                     if rec.amount > 0:
                         msg += f"\nСумма: `{rec.amount:.2f} {rec.currency}`"
                     
@@ -159,7 +160,7 @@ async def keep_alive():
             await asyncio.sleep(600)
 
 
-# --- ЖИЗНЕННЫЙ ЦИКЛ ПРИЛОЖЕНИЯ (LIFESPAN) ---
+# --- LIFESPAN ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     asyncio.create_task(asyncio.to_thread(run_db_migrations))
@@ -178,7 +179,6 @@ async def lifespan(app: FastAPI):
     keep_alive_task.cancel()
 
 
-# --- ИНИЦИАЛИЗАЦИЯ FASTAPI И СТАТИКИ ---
 app = FastAPI(title="Aura OS Royal Gold API", lifespan=lifespan)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -190,7 +190,6 @@ if not os.path.exists(STATIC_DIR):
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
-# --- HEALTH CHECK ---
 @app.get("/healthz")
 @app.get("/ping")
 async def health_check():
@@ -198,11 +197,7 @@ async def health_check():
 
 
 # --- КУРСЫ ВАЛЮТ И ОБРАБОТКА АУДИО ---
-RATES_TO_USD = {
-    "USD": 1.0,
-    "AMD": 0.00258,
-    "RUB": 0.011
-}
+RATES_TO_USD = { "USD": 1.0, "AMD": 0.00258, "RUB": 0.011 }
 
 def convert_currency(amount: float, from_curr: str, to_curr: str) -> float:
     if from_curr == to_curr or amount == 0:
@@ -223,17 +218,13 @@ def recognize_speech_free(audio_bytes: bytes) -> str:
             audio_data = recognizer.record(source)
             try:
                 text_hy = recognizer.recognize_google(audio_data, language="hy-AM")
-                if text_hy and len(text_hy.strip()) > 0:
-                    return text_hy
-            except sr.UnknownValueError:
-                pass
+                if text_hy and len(text_hy.strip()) > 0: return text_hy
+            except sr.UnknownValueError: pass
             
             try:
                 text_ru = recognizer.recognize_google(audio_data, language="ru-RU")
-                if text_ru and len(text_ru.strip()) > 0:
-                    return text_ru
-            except sr.UnknownValueError:
-                pass
+                if text_ru and len(text_ru.strip()) > 0: return text_ru
+            except sr.UnknownValueError: pass
     except Exception as e:
         print(f"Audio processing error: {e}")
     return ""
@@ -249,7 +240,11 @@ class RecordCreate(BaseModel):
     telegram_id: int
     title: str
     category: Optional[str] = None
+    sub_category: Optional[str] = None
     type: Optional[str] = None
+    due_date: Optional[str] = None
+    is_recurring: Optional[bool] = False
+    recurrence_rule: Optional[str] = None
 
 class ShortcutPayload(BaseModel):
     text: str
@@ -276,19 +271,19 @@ def parse_and_save(
     first_name: str = None, 
     username: str = None,
     category_override: Optional[str] = None,
-    type_override: Optional[str] = None
+    sub_category_override: Optional[str] = None,
+    type_override: Optional[str] = None,
+    due_date_override: Optional[datetime] = None,
+    is_recurring: bool = False,
+    recurrence_rule: Optional[str] = None
 ):
     user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
     is_adm = (telegram_id == ADMIN_TELEGRAM_ID)
     
     if not user:
         user = models.User(
-            telegram_id=telegram_id, 
-            currency="AMD", 
-            language="ru",
-            first_name=first_name,
-            username=username,
-            is_admin=is_adm
+            telegram_id=telegram_id, currency="AMD", language="ru",
+            first_name=first_name, username=username, is_admin=is_adm
         )
         db.add(user)
         db.commit()
@@ -304,19 +299,16 @@ def parse_and_save(
 
     base_currency = user.currency or "AMD"
     category = category_override or "task"
+    sub_category = sub_category_override or "general"
     rec_type = type_override or "expense"
     amount = 0.0
     detected_currency = None
     text_lower = text.lower()
 
-    if any(k in text_lower for k in ["доллар", "dollar", "dolar", "$", "դոլար"]):
-        detected_currency = "USD"
-    elif any(k in text_lower for k in ["рубл", "руб", "rub", "ռուբլի"]):
-        detected_currency = "RUB"
-    elif any(k in text_lower for k in ["драм", "dram", "֏", "դրամ"]):
-        detected_currency = "AMD"
-    else:
-        detected_currency = base_currency
+    if any(k in text_lower for k in ["доллар", "dollar", "dolar", "$", "դոլար"]): detected_currency = "USD"
+    elif any(k in text_lower for k in ["рубл", "руб", "rub", "ռուբլի"]): detected_currency = "RUB"
+    elif any(k in text_lower for k in ["драм", "dram", "֏", "դրամ"]): detected_currency = "AMD"
+    else: detected_currency = base_currency
 
     normalized_text = re.sub(r'(\d+)[\.,\s](\d{3})\b', r'\1\2', text_lower)
     numbers = re.findall(r'\d+(?:\.\d+)?', normalized_text)
@@ -345,10 +337,14 @@ def parse_and_save(
     record = models.Record(
         user_id=user.id,
         category=category,
+        sub_category=sub_category,
         type=rec_type,
         title=text,
         amount=round(amount, 2),
-        currency=base_currency
+        currency=base_currency,
+        due_date=due_date_override,
+        is_recurring=is_recurring,
+        recurrence_rule=recurrence_rule
     )
     db.add(record)
     db.commit()
@@ -356,35 +352,22 @@ def parse_and_save(
     return record
 
 
-# --- REST API ENDPOINTS ---
+# --- REST API ---
 
 @app.get("/", response_class=HTMLResponse)
 async def read_index():
     index_file = os.path.join(STATIC_DIR, "index.html")
     if os.path.exists(index_file):
-        with open(index_file, "r", encoding="utf-8") as f:
-            return f.read()
+        with open(index_file, "r", encoding="utf-8") as f: return f.read()
     return HTMLResponse(content="<h1>Index file not found</h1>", status_code=404)
 
 @app.get("/api/user/{telegram_id}")
-def get_user_info(
-    telegram_id: int, 
-    first_name: Optional[str] = None, 
-    username: Optional[str] = None, 
-    db: Session = Depends(get_db)
-):
+def get_user_info(telegram_id: int, first_name: Optional[str] = None, username: Optional[str] = None, db: Session = Depends(get_db)):
     user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
     is_adm = (telegram_id == ADMIN_TELEGRAM_ID)
     
     if not user:
-        user = models.User(
-            telegram_id=telegram_id, 
-            currency="AMD", 
-            language="ru", 
-            is_admin=is_adm,
-            first_name=first_name,
-            username=username
-        )
+        user = models.User(telegram_id=telegram_id, currency="AMD", language="ru", is_admin=is_adm, first_name=first_name, username=username)
         db.add(user)
         db.commit()
         db.refresh(user)
@@ -395,13 +378,7 @@ def get_user_info(
         if is_adm and not user.is_admin: user.is_admin = True
         db.commit()
 
-    return {
-        "currency": user.currency, 
-        "language": user.language or "ru",
-        "is_admin": user.is_admin,
-        "is_premium": user.is_premium,
-        "is_blocked": user.is_blocked
-    }
+    return { "currency": user.currency, "language": user.language or "ru", "is_admin": user.is_admin, "is_premium": user.is_premium, "is_blocked": user.is_blocked }
 
 @app.post("/api/user/settings")
 def update_user_settings(data: UserSettings, db: Session = Depends(get_db)):
@@ -415,349 +392,141 @@ def update_user_settings(data: UserSettings, db: Session = Depends(get_db)):
 @app.get("/api/records/{telegram_id}")
 def get_records(telegram_id: int, db: Session = Depends(get_db)):
     user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
-    if not user:
-        return []
+    if not user: return []
     return db.query(models.Record).filter(models.Record.user_id == user.id).order_by(models.Record.id.desc()).all()
 
 @app.post("/api/records")
 def create_record(data: RecordCreate, db: Session = Depends(get_db)):
+    parsed_date = None
+    if data.due_date:
+        try: parsed_date = datetime.fromisoformat(data.due_date)
+        except Exception: pass
+
     record = parse_and_save(
-        data.telegram_id, 
-        data.title, 
-        db, 
-        category_override=data.category, 
-        type_override=data.type
+        data.telegram_id, data.title, db,
+        category_override=data.category,
+        sub_category_override=data.sub_category,
+        type_override=data.type,
+        due_date_override=parsed_date,
+        is_recurring=data.is_recurring or False,
+        recurrence_rule=data.recurrence_rule
     )
     return {
-        "status": "ok",
-        "id": record.id,
-        "title": record.title,
-        "category": record.category,
-        "type": record.type,
-        "amount": record.amount,
-        "currency": record.currency
+        "status": "ok", "id": record.id, "title": record.title,
+        "category": record.category, "sub_category": record.sub_category,
+        "type": record.type, "amount": record.amount, "currency": record.currency,
+        "status_str": record.status, "due_date": record.due_date.isoformat() if record.due_date else None
     }
-
-@app.delete("/api/records/{record_id}")
-def delete_record(record_id: int, db: Session = Depends(get_db)):
-    record = db.query(models.Record).filter(models.Record.id == record_id).first()
-    if not record:
-        raise HTTPException(status_code=404, detail="Not found")
-    db.delete(record)
-    db.commit()
-    return {"status": "deleted"}
 
 @app.patch("/api/records/{record_id}/status")
 def toggle_record_status(record_id: int, db: Session = Depends(get_db)):
     record = db.query(models.Record).filter(models.Record.id == record_id).first()
-    if not record:
-        raise HTTPException(status_code=404, detail="Запись не найдена")
-    
-    # Переключаем статус между pending и completed
+    if not record: raise HTTPException(status_code=404, detail="Not found")
     record.status = "completed" if record.status == "pending" else "pending"
     db.commit()
     db.refresh(record)
     return {"status": "ok", "new_status": record.status}
 
+@app.delete("/api/records/{record_id}")
+def delete_record(record_id: int, db: Session = Depends(get_db)):
+    record = db.query(models.Record).filter(models.Record.id == record_id).first()
+    if not record: raise HTTPException(status_code=404, detail="Not found")
+    db.delete(record)
+    db.commit()
+    return {"status": "deleted"}
+
 @app.post("/api/voice")
-async def handle_web_voice(
-    telegram_id: int = Form(...),
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db)
-):
+async def handle_web_voice(telegram_id: int = Form(...), file: UploadFile = File(...), db: Session = Depends(get_db)):
     audio_bytes = await file.read()
-    recognized_text = recognize_speech_free(audio_bytes)
-    if not recognized_text:
-        recognized_text = "Голосовая запись"
-
+    recognized_text = recognize_speech_free(audio_bytes) or "Голосовая запись"
     rec = parse_and_save(telegram_id, recognized_text, db)
-    return {
-        "status": "ok", 
-        "id": rec.id, 
-        "title": rec.title, 
-        "category": rec.category,
-        "type": rec.type,
-        "amount": rec.amount,
-        "currency": rec.currency
-    }
-
-@app.post("/api/shortcut")
-def handle_shortcut(id: int, payload: ShortcutPayload, db: Session = Depends(get_db)):
-    record = parse_and_save(id, payload.text, db)
-    return {
-        "status": "ok",
-        "category": record.category,
-        "type": record.type,
-        "amount": record.amount,
-        "currency": record.currency,
-        "text": record.title
-    }
+    return { "status": "ok", "id": rec.id, "title": rec.title, "category": rec.category, "type": rec.type, "amount": rec.amount, "currency": rec.currency }
 
 
-# --- ADMIN API ENDPOINTS ---
+# --- ADMIN ENDPOINTS ---
 
 @app.get("/api/admin/stats/{admin_id}")
 def get_admin_stats(admin_id: int, db: Session = Depends(get_db)):
-    admin = db.query(models.User).filter(models.User.telegram_id == admin_id, models.User.is_admin == True).first()
-    if not admin and admin_id != ADMIN_TELEGRAM_ID:
-        raise HTTPException(status_code=403, detail="Forbidden")
-
-    total_users = db.query(models.User).count()
-    active_bot_users = db.query(models.User).filter(models.User.bot_active == True).count()
-    blocked_bot_users = db.query(models.User).filter(models.User.bot_active == False).count()
-    premium_users = db.query(models.User).filter(models.User.is_premium == True).count()
-    banned_users = db.query(models.User).filter(models.User.is_blocked == True).count()
-    total_records = db.query(models.Record).count()
-
+    if admin_id != ADMIN_TELEGRAM_ID: raise HTTPException(status_code=403, detail="Forbidden")
     return {
-        "total_users": total_users,
-        "active_bot_users": active_bot_users,
-        "blocked_bot_users": blocked_bot_users,
-        "premium_users": premium_users,
-        "banned_users": banned_users,
-        "total_records": total_records
+        "total_users": db.query(models.User).count(),
+        "active_bot_users": db.query(models.User).filter(models.User.bot_active == True).count(),
+        "premium_users": db.query(models.User).filter(models.User.is_premium == True).count(),
+        "banned_users": db.query(models.User).filter(models.User.is_blocked == True).count(),
+        "total_records": db.query(models.Record).count()
     }
 
 @app.get("/api/admin/users/{admin_id}")
 def get_admin_users(admin_id: int, db: Session = Depends(get_db)):
-    admin = db.query(models.User).filter(models.User.telegram_id == admin_id, models.User.is_admin == True).first()
-    if not admin and admin_id != ADMIN_TELEGRAM_ID:
-        raise HTTPException(status_code=403, detail="Forbidden")
-
+    if admin_id != ADMIN_TELEGRAM_ID: raise HTTPException(status_code=403, detail="Forbidden")
     users = db.query(models.User).order_by(models.User.id.desc()).all()
     res = []
     for u in users:
         rec_count = db.query(models.Record).filter(models.Record.user_id == u.id).count()
         res.append({
-            "id": u.id,
-            "telegram_id": u.telegram_id,
-            "first_name": u.first_name or "Без имени",
-            "username": u.username or "",
-            "language": u.language,
-            "currency": u.currency,
-            "is_premium": u.is_premium,
-            "is_blocked": u.is_blocked,
-            "bot_active": u.bot_active,
-            "records_count": rec_count,
-            "created_at": u.created_at.strftime("%Y-%m-%d %H:%M") if u.created_at else ""
+            "id": u.id, "telegram_id": u.telegram_id, "first_name": u.first_name or "Без имени",
+            "username": u.username or "", "is_premium": u.is_premium, "is_blocked": u.is_blocked,
+            "records_count": rec_count
         })
     return res
 
 @app.post("/api/admin/toggle-premium")
 def admin_toggle_premium(data: AdminUserAction, db: Session = Depends(get_db)):
-    if data.admin_id != ADMIN_TELEGRAM_ID:
-        raise HTTPException(status_code=403, detail="Forbidden")
+    if data.admin_id != ADMIN_TELEGRAM_ID: raise HTTPException(status_code=403, detail="Forbidden")
     user = db.query(models.User).filter(models.User.telegram_id == data.target_tg_id).first()
     if user:
         user.is_premium = not user.is_premium
         db.commit()
-        return {"status": "ok", "is_premium": user.is_premium}
+        return {"status": "ok"}
     raise HTTPException(status_code=404, detail="User not found")
 
 @app.post("/api/admin/toggle-ban")
 def admin_toggle_ban(data: AdminUserAction, db: Session = Depends(get_db)):
-    if data.admin_id != ADMIN_TELEGRAM_ID:
-        raise HTTPException(status_code=403, detail="Forbidden")
+    if data.admin_id != ADMIN_TELEGRAM_ID: raise HTTPException(status_code=403, detail="Forbidden")
     user = db.query(models.User).filter(models.User.telegram_id == data.target_tg_id).first()
     if user:
         user.is_blocked = not user.is_blocked
         db.commit()
-        return {"status": "ok", "is_blocked": user.is_blocked}
+        return {"status": "ok"}
     raise HTTPException(status_code=404, detail="User not found")
 
 @app.post("/api/admin/broadcast")
 async def admin_broadcast(data: AdminBroadcast, db: Session = Depends(get_db)):
-    if data.admin_id != ADMIN_TELEGRAM_ID:
-        raise HTTPException(status_code=403, detail="Forbidden")
-    
+    if data.admin_id != ADMIN_TELEGRAM_ID: raise HTTPException(status_code=403, detail="Forbidden")
     users = db.query(models.User).filter(models.User.bot_active == True, models.User.is_blocked == False).all()
     success_count = 0
-    fail_count = 0
-
     for u in users:
         try:
             await bot.send_message(u.telegram_id, data.message_text, parse_mode="Markdown")
             success_count += 1
         except Exception:
-            fail_count += 1
             u.bot_active = False
             db.commit()
-
-    return {"status": "ok", "success": success_count, "failed": fail_count}
+    return {"status": "ok", "success": success_count}
 
 @app.post("/api/admin/direct-message")
 async def admin_direct_message(data: AdminDirectMessage, db: Session = Depends(get_db)):
-    if data.admin_id != ADMIN_TELEGRAM_ID:
-        raise HTTPException(status_code=403, detail="Forbidden")
-    
+    if data.admin_id != ADMIN_TELEGRAM_ID: raise HTTPException(status_code=403, detail="Forbidden")
     target_clean = data.target.strip()
-    if not target_clean or not data.message_text.strip():
-        raise HTTPException(status_code=400, detail="Укажите адресата и текст сообщения")
-
     user = None
-    if target_clean.isdigit():
-        user = db.query(models.User).filter(models.User.telegram_id == int(target_clean)).first()
-    else:
-        uname = target_clean.lstrip('@')
-        user = db.query(models.User).filter(models.User.username.ilike(uname)).first()
-
-    if not user:
-        raise HTTPException(status_code=404, detail="Пользователь не найден в базе")
-
-    try:
-        await bot.send_message(user.telegram_id, data.message_text, parse_mode="Markdown")
-        return {"status": "ok", "recipient": user.first_name or user.username or str(user.telegram_id)}
-    except Exception as e:
-        user.bot_active = False
-        db.commit()
-        raise HTTPException(status_code=400, detail=f"Ошибка отправки: {e}")
+    if target_clean.isdigit(): user = db.query(models.User).filter(models.User.telegram_id == int(target_clean)).first()
+    else: user = db.query(models.User).filter(models.User.username.ilike(f"%{target_clean.lstrip('@')}%")).first()
+    if not user: raise HTTPException(status_code=404, detail="User not found")
+    await bot.send_message(user.telegram_id, data.message_text, parse_mode="Markdown")
+    return {"status": "ok", "recipient": user.first_name or str(user.telegram_id)}
 
 
-# --- TELEGRAM BOT И ХЭНДЛЕРЫ ---
-
-@dp.my_chat_member(ChatMemberUpdatedFilter(member_status_changed=KICKED))
-async def user_blocked_bot(event: ChatMemberUpdated):
-    db = next(get_db())
-    user = db.query(models.User).filter(models.User.telegram_id == event.from_user.id).first()
-    if user:
-        user.bot_active = False
-        db.commit()
-
-@dp.my_chat_member(ChatMemberUpdatedFilter(member_status_changed=MEMBER))
-async def user_unblocked_bot(event: ChatMemberUpdated):
-    db = next(get_db())
-    user = db.query(models.User).filter(models.User.telegram_id == event.from_user.id).first()
-    if user:
-        user.bot_active = True
-        db.commit()
-
-def get_record_keyboard(record_id: int, status: str = "pending", category: str = "task"):
-    buttons = []
-    
-    if category == "task":
-        status_btn_text = "✅ Отметить выполненной" if status == "pending" else "↩️ Вернуть в работу"
-        buttons.append([InlineKeyboardButton(text=status_btn_text, callback_data=f"toggle_status:{record_id}")])
-    
-    buttons.append([
-        InlineKeyboardButton(text="🔄 Доход / Расход", callback_data=f"toggle_type:{record_id}"),
-        InlineKeyboardButton(text="🗑 Удалить", callback_data=f"del_rec:{record_id}")
-    ])
-    
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
-
-@dp.callback_query(F.data.startswith("toggle_status:"))
-async def cb_toggle_status(callback: CallbackQuery):
-    rec_id = int(callback.data.split(":")[1])
-    db = next(get_db())
-    rec = db.query(models.Record).filter(models.Record.id == rec_id).first()
-    if rec:
-        rec.status = "completed" if rec.status == "pending" else "pending"
-        db.commit()
-        status_str = "ВЫПОЛНЕНО ✅" if rec.status == "completed" else "В ПРОЦЕССЕ ⏳"
-        
-        await callback.message.edit_text(
-            f"Задание: **{rec.title}**\nСтатус: **{status_str}**",
-            parse_mode="Markdown",
-            reply_markup=get_record_keyboard(rec.id, rec.status, rec.category)
-        )
-        await callback.answer("Статус задачи обновлен!")
-    else:
-        await callback.answer("Запись не найдена", show_alert=True)
-
+# --- TELEGRAM BOT ---
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
     db = next(get_db())
-    parse_and_save(
-        message.from_user.id, 
-        "", 
-        db, 
-        first_name=message.from_user.first_name, 
-        username=message.from_user.username
-    )
-    
-    markup = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="👑 Открыть Aura OS Gold", web_app=WebAppInfo(url=WEBAPP_URL))]
-    ])
-    await message.answer(
-        f"Привет, {message.from_user.first_name}! 👋\n\n"
-        f"🎙 Напиши или надиктуй задачу/доход/расход!",
-        reply_markup=markup
-    )
+    parse_and_save(message.from_user.id, "", db, first_name=message.from_user.first_name, username=message.from_user.username)
+    markup = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="👑 Открыть Aura OS Gold", web_app=WebAppInfo(url=WEBAPP_URL))]])
+    await message.answer(f"Привет, {message.from_user.first_name}! 👋\n\n🎙 Напиши или надиктуй задачу/доход/расход!", reply_markup=markup)
 
 @dp.message(F.text)
 async def handle_text_message(message: types.Message):
     db = next(get_db())
-    rec = parse_and_save(
-        message.from_user.id, 
-        message.text, 
-        db, 
-        first_name=message.from_user.first_name, 
-        username=message.from_user.username
-    )
+    rec = parse_and_save(message.from_user.id, message.text, db, first_name=message.from_user.first_name, username=message.from_user.username)
     emoji = "📈" if rec.type == "income" else ("💸" if rec.category == "finance" else "✅")
-    
-    await message.answer(
-        f"{emoji} Записано: **{rec.title}**\n"
-        f"Тип: **{rec.type.upper()}** | Сумма: **{rec.amount:.2f} {rec.currency}**",
-        parse_mode="Markdown",
-        reply_markup=get_record_keyboard(rec.id, rec.status, rec.category)
-    )
-
-@dp.message(F.voice)
-async def handle_voice_message(message: types.Message):
-    db = next(get_db())
-    file_info = await bot.get_file(message.voice.file_id)
-    file_bytes = await bot.download_file(file_info.file_path)
-    
-    recognized_text = recognize_speech_free(file_bytes.read())
-    if not recognized_text:
-        recognized_text = "Голосовая запись"
-
-    rec = parse_and_save(
-        message.from_user.id, 
-        recognized_text, 
-        db, 
-        first_name=message.from_user.first_name, 
-        username=message.from_user.username
-    )
-    emoji = "📈" if rec.type == "income" else ("💸" if rec.category == "finance" else "✅")
-    
-    await message.answer(
-        f"🎙 {emoji} **Распознано:** «{rec.title}»\n"
-        f"Тип: **{rec.type.upper()}** | Сумма: **{rec.amount:.2f} {rec.currency}**",
-        parse_mode="Markdown",
-        reply_markup=get_record_keyboard(rec.id, rec.status, rec.category)
-    )
-
-@dp.callback_query(F.data.startswith("toggle_type:"))
-async def cb_toggle_type(callback: CallbackQuery):
-    rec_id = int(callback.data.split(":")[1])
-    db = next(get_db())
-    rec = db.query(models.Record).filter(models.Record.id == rec_id).first()
-    if rec:
-        rec.type = "income" if rec.type == "expense" else "expense"
-        db.commit()
-        emoji = "📈" if rec.type == "income" else "💸"
-        await callback.message.edit_text(
-            f"{emoji} Изменено: **{rec.title}**\n"
-            f"Новый тип: **{rec.type.upper()}** | Сумма: **{rec.amount:.2f} {rec.currency}**",
-            parse_mode="Markdown",
-            reply_markup=get_record_keyboard(rec.id, rec.status, rec.category)
-        )
-        await callback.answer("Тип записи изменен!")
-    else:
-        await callback.answer("Запись не найдена", show_alert=True)
-
-@dp.callback_query(F.data.startswith("del_rec:"))
-async def cb_delete_rec(callback: CallbackQuery):
-    rec_id = int(callback.data.split(":")[1])
-    db = next(get_db())
-    rec = db.query(models.Record).filter(models.Record.id == rec_id).first()
-    if rec:
-        db.delete(rec)
-        db.commit()
-        await callback.message.edit_text("🗑 Запись удалена!", parse_mode="Markdown")
-        await callback.answer("Удалено")
-    else:
-        await callback.answer("Запись не найдена", show_alert=True)
+    await message.answer(f"{emoji} Записано: **{rec.title}**\nСумма: **{rec.amount:.2f} {rec.currency}**", parse_mode="Markdown")
