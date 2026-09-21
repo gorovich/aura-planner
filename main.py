@@ -78,16 +78,23 @@ def run_db_migrations():
     Base.metadata.create_all(bind=engine)
 
 
-# --- ПРОВЕРКИ СТАТУСОВ ---
-def check_is_premium(user: models.User) -> bool:
-    if user.is_admin or user.is_premium:
-        return True
+# --- ПРОВЕРКИ СТАТУСОВ ПОДПИСКИ ---
+def get_user_sub_info(user: models.User):
     now = datetime.utcnow()
-    if user.premium_until and user.premium_until > now:
-        return True
+    if user.is_admin:
+        return {"type": "admin", "days_left": 999, "is_premium": True}
+    
+    if user.is_premium or (user.premium_until and user.premium_until > now):
+        days = 0
+        if user.premium_until and user.premium_until > now:
+            days = (user.premium_until - now).days + 1
+        return {"type": "paid", "days_left": days, "is_premium": True}
+    
     if user.trial_until and user.trial_until > now:
-        return True
-    return False
+        days = (user.trial_until - now).days + 1
+        return {"type": "trial", "days_left": days, "is_premium": True}
+    
+    return {"type": "free", "days_left": 0, "is_premium": False}
 
 def update_streak(user: models.User, db: Session):
     today = date.today()
@@ -320,8 +327,8 @@ def parse_and_save(
     if user.is_blocked:
         raise HTTPException(status_code=403, detail="Пользователь заблокирован")
 
-    is_prem = check_is_premium(user)
-    if not is_prem:
+    sub_info = get_user_sub_info(user)
+    if not sub_info["is_premium"]:
         today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
         today_count = db.query(models.Record).filter(
             models.Record.user_id == user.id,
@@ -404,14 +411,16 @@ def get_user_info(telegram_id: int, first_name: Optional[str] = None, username: 
         if is_adm and not user.is_admin: user.is_admin = True
         db.commit()
 
-    is_prem = check_is_premium(user)
+    sub_info = get_user_sub_info(user)
     family_code = user.family.code if user.family else None
 
     return {
         "currency": user.currency,
         "language": user.language or "ru",
         "is_admin": user.is_admin,
-        "is_premium": is_prem,
+        "is_premium": sub_info["is_premium"],
+        "sub_type": sub_info["type"],
+        "days_left": sub_info["days_left"],
         "is_blocked": user.is_blocked,
         "streak_count": user.streak_count or 1,
         "family_code": family_code
@@ -526,7 +535,6 @@ def create_family(telegram_id: int, db: Session = Depends(get_db)):
     if not user: 
         raise HTTPException(status_code=404, detail="Пользователь не найден")
     
-    # Возвращаем существующий код семьи, если юзер уже в семье
     if user.family:
         return {"status": "ok", "code": user.family.code, "is_existing": True}
 
@@ -599,7 +607,7 @@ async def process_successful_payment(message: Message):
     await message.answer(f"🎉 **Оплата зачислена!** Подписка Royal Gold продлена на {months} мес. Спасибо!")
 
 
-# --- ПОЛНЫЕ АДМИНСКИЕ ЭНДПОИНТЫ ---
+# --- АДМИНСКИЕ ЭНДПОИНТЫ С ПОДРОБНОЙ СТАТИСТИКОЙ ---
 
 @app.get("/api/admin/stats/{admin_id}")
 def get_admin_stats(admin_id: int, db: Session = Depends(get_db)):
@@ -619,9 +627,15 @@ def get_admin_users(admin_id: int, db: Session = Depends(get_db)):
     res = []
     for u in users:
         rec_count = db.query(models.Record).filter(models.Record.user_id == u.id).count()
+        sub_info = get_user_sub_info(u)
         res.append({
-            "id": u.id, "telegram_id": u.telegram_id, "first_name": u.first_name or "Без имени",
-            "username": u.username or "", "is_premium": u.is_premium, "is_blocked": u.is_blocked,
+            "id": u.id,
+            "telegram_id": u.telegram_id,
+            "first_name": u.first_name or "Без имени",
+            "username": u.username or "",
+            "sub_type": sub_info["type"],
+            "days_left": sub_info["days_left"],
+            "is_blocked": u.is_blocked,
             "records_count": rec_count
         })
     return res
