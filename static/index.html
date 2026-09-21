@@ -554,14 +554,29 @@
       document.getElementById('broadcastText').value = '';
     }
 
-    async function toggleTaskStatus(id, currentStatus) {
-      haptic();
-      const rec = allRecords.find(r => r.id === id);
-      if (rec) {
-        rec.status = currentStatus === 'completed' ? 'pending' : 'completed';
-        renderPlannerList();
-      }
-    }
+	async function toggleTaskStatus(id, currentStatus) {
+		  haptic();
+		  const rec = allRecords.find(r => r.id === id);
+		  if (rec) {
+			// 1. Мгновенно обновляем интерфейс для плавности
+			rec.status = currentStatus === 'completed' ? 'pending' : 'completed';
+			renderPlannerList();
+
+			// 2. Отправляем запрос на сохранение нового статуса в БД
+			try {
+			  const res = await fetch(`/api/records/${id}/status`, { method: 'PATCH' });
+			  if (!res.ok) {
+				// В случае ошибки возвращаем статус обратно
+				rec.status = currentStatus;
+				renderPlannerList();
+			  }
+			} catch (e) {
+			  console.error("Ошибка сохранения статуса:", e);
+			  rec.status = currentStatus;
+			  renderPlannerList();
+			}
+		  }
+		}
 
     async function deleteRecord(id) {
       haptic();
