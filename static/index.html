@@ -154,32 +154,32 @@
   <!-- TAB 3: GOALS (КОПИЛКИ) -->
   <div id="tab-goals" class="tab-content">
     <div class="section-title" style="margin-top: 10px;">
-      <span>🎯 Накопительные цели & Копилки</span>
-      <button class="pill active" style="padding: 4px 12px;" onclick="openGoalModal()">+ Создать</button>
+      <span data-i18n="goalsTitle">🎯 Накопительные цели & Копилки</span>
+      <button class="pill active" style="padding: 4px 12px;" onclick="openGoalModal()" data-i18n="createGoal">+ Создать</button>
     </div>
     <div id="goalsList"></div>
   </div>
 
   <!-- TAB 4: SETTINGS & FAMILY -->
   <div id="tab-settings" class="tab-content">
-    <div class="section-title" style="margin-top: 10px;">👨‍👩‍👧 Aura Family (Семейный доступ)</div>
+    <div class="section-title" style="margin-top: 10px;" data-i18n="familyTitle">👨‍👩‍👧 Aura Family (Семейный доступ)</div>
     <div class="balance-card">
-      <div id="familyStatusText" style="font-size: 12px; color: var(--text-muted); margin-bottom: 10px;">
+      <div id="familyStatusText" style="font-size: 12px; color: var(--text-muted); margin-bottom: 10px;" data-i18n="familyDesc">
         Подключите партнера, чтобы вести общий семейный учет и планер задач.
       </div>
       <div style="display:flex; gap:8px;">
-        <button class="btn-submit" style="flex:1;" onclick="createFamilyCode()">Создать код</button>
-        <button class="btn-submit" style="flex:1; background: transparent; border:1px solid var(--gold-primary); color:var(--gold-primary);" onclick="promptJoinFamily()">Ввести код</button>
+        <button class="btn-submit" style="flex:1;" onclick="createFamilyCode()" data-i18n="createCode">Создать код</button>
+        <button class="btn-submit" style="flex:1; background: transparent; border:1px solid var(--gold-primary); color:var(--gold-primary);" onclick="promptJoinFamily()" data-i18n="joinCode">Ввести код</button>
       </div>
     </div>
 
-    <div class="section-title">⭐ Подписка Royal Gold (Telegram Stars)</div>
+    <div class="section-title" data-i18n="starsTitle">⭐ Подписка Royal Gold (Telegram Stars)</div>
     <div class="balance-card">
-      <div style="font-size:12px; margin-bottom: 10px; color:var(--text-muted);">Безлимитные записи, семейный доступ и ИИ-голосовой ввод.</div>
+      <div style="font-size:12px; margin-bottom: 10px; color:var(--text-muted);" data-i18n="starsDesc">Безлимитные записи, семейный доступ и ИИ-голосовой ввод.</div>
       <div style="display:flex; flex-direction:column; gap:6px;">
-        <button class="btn-submit" onclick="buyStars(1)">1 Месяц — 150 ⭐️</button>
-        <button class="btn-submit" onclick="buyStars(3)">3 Месяца — 350 ⭐️</button>
-        <button class="btn-submit" onclick="buyStars(12)">1 Год — 990 ⭐️</button>
+        <button class="btn-submit" onclick="buyStars(1)" data-i18n="month1">1 Месяц — 150 ⭐️</button>
+        <button class="btn-submit" onclick="buyStars(3)" data-i18n="month3">3 Месяца — 350 ⭐️</button>
+        <button class="btn-submit" onclick="buyStars(12)" data-i18n="year1">1 Год — 990 ⭐️</button>
       </div>
     </div>
 
@@ -212,15 +212,15 @@
       <div style="font-size: 13px; color: var(--text-muted);">Загрузка статистики...</div>
     </div>
 
-    <div class="section-title">📢 Рассылка всем пользователям</div>
+    <div class="section-title" data-i18n="broadcastTitle">📢 Рассылка всем пользователям</div>
     <div class="balance-card">
       <div class="form-group">
         <textarea class="form-input" id="broadcastText" rows="3" placeholder="Текст рассылки..."></textarea>
       </div>
-      <button class="btn-submit" onclick="sendBroadcast()">Отправить рассылку</button>
+      <button class="btn-submit" onclick="sendBroadcast()" data-i18n="sendBroadcastBtn">Отправить рассылку</button>
     </div>
 
-    <div class="section-title">✉️ Личное сообщение</div>
+    <div class="section-title" data-i18n="directMsgTitle">✉️ Личное сообщение</div>
     <div class="balance-card">
       <div class="form-group">
         <input type="text" class="form-input" id="directTarget" placeholder="Telegram ID или @username">
@@ -228,10 +228,10 @@
       <div class="form-group">
         <textarea class="form-input" id="directMessageText" rows="3" placeholder="Текст сообщения..."></textarea>
       </div>
-      <button class="btn-submit" onclick="sendDirectMessage()">Отправить сообщение</button>
+      <button class="btn-submit" onclick="sendDirectMessage()" data-i18n="sendMsgBtn">Отправить сообщение</button>
     </div>
 
-    <div class="section-title">👥 Список пользователей</div>
+    <div class="section-title" data-i18n="usersListTitle">👥 Список пользователей</div>
     <div id="adminUsersList"></div>
   </div>
 
@@ -266,15 +266,37 @@
   <!-- MODAL GOAL -->
   <div class="modal-overlay" id="addGoalModal">
     <div class="modal-card">
-      <div class="modal-title">Новая Копилка</div>
+      <div class="modal-title" data-i18n="newGoalTitle">Новая Копилка</div>
       <div class="form-group">
-        <input type="text" class="form-input" id="goalTitle" placeholder="Название (например: Ремонт BMW)">
+        <input type="text" class="form-input" id="goalTitle" placeholder="Название...">
       </div>
       <div class="form-group">
         <input type="number" class="form-input" id="goalTarget" placeholder="Целевая сумма">
       </div>
-      <button class="btn-submit" onclick="submitNewGoal()">Создать копилку</button>
-      <button class="btn-submit" style="background: transparent; color: var(--text-muted);" onclick="closeGoalModal()">Отмена</button>
+      <button class="btn-submit" onclick="submitNewGoal()" data-i18n="createGoalBtn">Создать копилку</button>
+      <button class="btn-submit" style="background: transparent; color: var(--text-muted);" onclick="closeGoalModal()" data-i18n="cancel">Отмена</button>
+    </div>
+  </div>
+
+  <!-- CUSTOM ALERT MODAL (Замена alert) -->
+  <div class="modal-overlay" id="customAlertModal">
+    <div class="modal-card" style="text-align: center;">
+      <div id="customAlertIcon" style="font-size: 38px; margin-bottom: 8px;">ℹ️</div>
+      <div class="modal-title" id="customAlertTitle" style="margin-bottom: 8px; color: var(--gold-primary);">Сообщение</div>
+      <div id="customAlertMessage" style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px; white-space: pre-wrap;"></div>
+      <button class="btn-submit" onclick="closeCustomAlert()" data-i18n="ok">OK</button>
+    </div>
+  </div>
+
+  <!-- CUSTOM PROMPT MODAL (Замена prompt) -->
+  <div class="modal-overlay" id="customPromptModal">
+    <div class="modal-card">
+      <div class="modal-title" id="customPromptTitle" style="color: var(--gold-primary);">Введите значение</div>
+      <div class="form-group">
+        <input type="text" class="form-input" id="customPromptInput" placeholder="">
+      </div>
+      <button class="btn-submit" id="customPromptSubmitBtn" data-i18n="confirm">Подтвердить</button>
+      <button class="btn-submit" style="background: transparent; color: var(--text-muted);" onclick="closeCustomPrompt()" data-i18n="cancel">Отмена</button>
     </div>
   </div>
 
@@ -290,7 +312,7 @@
     </button>
     <button class="nav-btn" onclick="switchTab('tab-goals', this)">
       <span style="font-size: 18px;">🎯</span>
-      <span>Копилки</span>
+      <span data-i18n="goals">Копилки</span>
     </button>
     <button class="nav-btn" id="adminNavBtn" style="display: none;" onclick="switchTab('tab-admin', this)">
       <span style="font-size: 18px;">👑</span>
@@ -316,7 +338,26 @@
         settings: "Настройки профиля", currency: "Основная валюта учета",
         language: "Язык интерфейса", admin: "Админ", newRecord: "Новая запись",
         type: "Тип записи", task: "📝 Задача (Планер)", expType: "💸 Расход (Финансы)",
-        incType: "📈 Доход (Финансы)", save: "Сохранить", cancel: "Отмена", finance: "Финансы"
+        incType: "📈 Доход (Финансы)", save: "Сохранить", cancel: "Отмена", finance: "Финансы",
+        goals: "Копилки", goalsTitle: "🎯 Накопительные цели & Копилки", createGoal: "+ Создать",
+        familyTitle: "👨‍👩‍👧 Aura Family (Семейный доступ)",
+        familyDesc: "Подключите партнера, чтобы вести общий семейный учет и планер задач.",
+        createCode: "Создать код", joinCode: "Ввести код",
+        starsTitle: "⭐ Подписка Royal Gold (Telegram Stars)",
+        starsDesc: "Безлимитные записи, семейный доступ и ИИ-голосовой ввод.",
+        month1: "1 Месяц — 150 ⭐️", month3: "3 Месяца — 350 ⭐️", year1: "1 Год — 990 ⭐️",
+        newGoalTitle: "Новая Копилка", goalNamePlaceholder: "Название (например: Ремонт BMW)",
+        goalTargetPlaceholder: "Целевая сумма", createGoalBtn: "Создать копилку",
+        depositBtn: "+ Пополнить",
+        ok: "OK", confirm: "Подтвердить", error: "Ошибка", success: "Успешно",
+        depositTitle: "Пополнение копилки", depositPlaceholder: "Введите сумму пополнения",
+        familyCodeCreated: "Код семьи создан!", familyCodeIs: "Ваш код", shareWithPartner: "Передайте его второму человеку!",
+        enterFamilyCodeTitle: "Вход в семью", enterFamilyCodePlaceholder: "Введите 6-значный код семьи",
+        joinedFamilySuccess: "Вы успешно присоединились к семье!", familyCodeNotFound: "Код семьи не найден",
+        inFamilyPrefix: "✅ Вы в семье! Код приглашения", streakSuffix: "дн.",
+        broadcastTitle: "📢 Рассылка всем пользователям", sendBroadcastBtn: "Отправить рассылку",
+        directMsgTitle: "✉️ Личное сообщение", sendMsgBtn: "Отправить сообщение",
+        usersListTitle: "👥 Список пользователей", delete: "Удалить"
       },
       hy: {
         balance: "Ազատ մնացորդ", income: "Եկամուտներ", expense: "Ծախսեր",
@@ -325,7 +366,26 @@
         settings: "Կարգավորումներ", currency: "Հիմնական արժույթ",
         language: "Ինտերֆեյսի լեզուն", admin: "Ադմին", newRecord: "Նոր գրանցում",
         type: "Տեսակը", task: "📝 Առաջադրանք", expType: "💸 Ծախս (Ֆինանսներ)",
-        incType: "📈 Եկամուտ (Ֆինանսներ)", save: "Պահպանել", cancel: "Չեղարկել", finance: "Ֆինանսներ"
+        incType: "📈 Եկամուտ (Ֆինանսներ)", save: "Պահպանել", cancel: "Չեղարկել", finance: "Ֆինանսներ",
+        goals: "Խնայողություններ", goalsTitle: "🎯 Նպատակներ և Խնայողություններ", createGoal: "+ Ստեղծել",
+        familyTitle: "👨‍👩‍👧 Aura Family (Ընտանեկան հաշիվ)",
+        familyDesc: "Միացրեք զուգընկերոջը՝ ընդհանուր բյուջե և առաջադրանքներ վարելու համար։",
+        createCode: "Ստեղծել կոդ", joinCode: "Մուտքագրել կոդ",
+        starsTitle: "⭐ Royal Gold Բաժանորդագրություն (Telegram Stars)",
+        starsDesc: "Անսահմանափակ գրանցումներ, ընտանեկան հաշիվ և ձայնային մուտքագրում։",
+        month1: "1 Ամիս — 150 ⭐️", month3: "3 Ամիս — 350 ⭐️", year1: "1 Տարի — 990 ⭐️",
+        newGoalTitle: "Նոր Խնայողություն", goalNamePlaceholder: "Անվանում (օրինակ՝ BMW-ի վերանորոգում)",
+        goalTargetPlaceholder: "Նպատակային գումար", createGoalBtn: "Ստեղծել նպատակ",
+        depositBtn: "+ Ավելացնել",
+        ok: "Լավ", confirm: "Հաստատել", error: "Սխալ", success: "Հաջողությամբ",
+        depositTitle: "Խնայողության ավելացում", depositPlaceholder: "Մուտքագրեք գումարը",
+        familyCodeCreated: "Ընտանեկան կոդը ստեղծված է!", familyCodeIs: "Ձեր կոդը", shareWithPartner: "Փոխանցեք այն մյուս անդամին!",
+        enterFamilyCodeTitle: "Մուտք ընտանիք", enterFamilyCodePlaceholder: "Մուտքագրեք 6-նիշ կոդը",
+        joinedFamilySuccess: "Դուք հաջողությամբ միացաք ընտանիքին!", familyCodeNotFound: "Ընտանեկան կոդը չի գտնվել",
+        inFamilyPrefix: "✅ Դուք ընտանիքում եք: Հրավերի կոդը", streakSuffix: "օր",
+        broadcastTitle: "📢 Հաղորդագրություն բոլորին", sendBroadcastBtn: "Ուղարկել",
+        directMsgTitle: "✉️ Անձնական հաղորդագրություն", sendMsgBtn: "Ուղարկել",
+        usersListTitle: "👥 Օգտատերերի ցանկ", delete: "Ջնջել"
       }
     };
 
@@ -336,6 +396,7 @@
     let chartInstance = null;
     let mediaRecorder = null;
     let audioChunks = [];
+    let customPromptCallback = null;
 
     async function initApp() {
       document.getElementById('userName').innerText = tgUser.first_name || "User";
@@ -346,14 +407,58 @@
       await fetchGoals();
     }
 
+    function getI18nText(key) {
+      const dict = i18n[userSettings.language] || i18n.ru;
+      return dict[key] || i18n.ru[key] || key;
+    }
+
     function applyLanguage(lang) {
+      userSettings.language = lang;
       const dict = i18n[lang] || i18n.ru;
       document.querySelectorAll('[data-i18n]').forEach(el => {
         const key = el.getAttribute('data-i18n');
         if (dict[key]) el.innerText = dict[key];
       });
+
+      document.getElementById('goalTitle').placeholder = getI18nText('goalNamePlaceholder');
+      document.getElementById('goalTarget').placeholder = getI18nText('goalTargetPlaceholder');
     }
 
+    // --- КАСТОМНЫЕ МОДАЛЬНЫЕ ОКНА (ВМЕСТО BROWSER PROMPT И ALERT) ---
+    function showCustomAlert(title, message, icon = 'ℹ️') {
+      document.getElementById('customAlertIcon').innerText = icon;
+      document.getElementById('customAlertTitle').innerText = title;
+      document.getElementById('customAlertMessage').innerText = message;
+      document.getElementById('customAlertModal').classList.add('active');
+    }
+
+    function closeCustomAlert() {
+      document.getElementById('customAlertModal').classList.remove('active');
+    }
+
+    function showCustomPrompt(title, placeholder, callback, inputType = 'text') {
+      document.getElementById('customPromptTitle').innerText = title;
+      const input = document.getElementById('customPromptInput');
+      input.value = '';
+      input.placeholder = placeholder;
+      input.type = inputType;
+      customPromptCallback = callback;
+      document.getElementById('customPromptModal').classList.add('active');
+      setTimeout(() => input.focus(), 100);
+    }
+
+    function closeCustomPrompt() {
+      document.getElementById('customPromptModal').classList.remove('active');
+      customPromptCallback = null;
+    }
+
+    document.getElementById('customPromptSubmitBtn').onclick = function() {
+      const val = document.getElementById('customPromptInput').value.trim();
+      if (customPromptCallback) customPromptCallback(val);
+      closeCustomPrompt();
+    };
+
+    // --- API & РЕНДЕР ---
     async function fetchUserInfo() {
       try {
         const res = await fetch(`/api/user/${tgUser.id}?first_name=${encodeURIComponent(tgUser.first_name)}&username=${encodeURIComponent(tgUser.username || '')}`);
@@ -362,14 +467,14 @@
         
         document.getElementById('currencySelect').value = data.currency || 'AMD';
         document.getElementById('languageSelect').value = data.language || 'ru';
-        document.getElementById('streakBadge').innerText = `🔥 ${data.streak_count || 1} дн.`;
+        document.getElementById('streakBadge').innerText = `🔥 ${data.streak_count || 1} ${getI18nText('streakSuffix')}`;
 
         if (data.is_admin) {
           document.getElementById('adminNavBtn').style.display = 'flex';
         }
 
         if (data.family_code) {
-          document.getElementById('familyStatusText').innerHTML = `✅ Вы в семье! Код приглашения: <b>${data.family_code}</b>`;
+          document.getElementById('familyStatusText').innerHTML = `${getI18nText('inFamilyPrefix')}: <b>${data.family_code}</b>`;
         }
 
         applyLanguage(data.language || 'ru');
@@ -437,14 +542,14 @@
             <div class="item-icon">${isInc ? '📈' : '💸'}</div>
             <div>
               <div class="item-title">${escapeHtml(r.title)}</div>
-              <div class="item-sub">${isInc ? 'Зачисление' : 'Списание'}</div>
+              <div class="item-sub">${isInc ? getI18nText('income') : getI18nText('expense')}</div>
             </div>
           </div>
           <div style="text-align: right;">
             <div style="font-weight:600; color: ${isInc ? 'var(--success)' : '#fff'}">
               ${isInc ? '+' : '-'}${r.amount.toFixed(2)} ${r.currency || userSettings.currency}
             </div>
-            <div style="font-size: 10px; color: var(--danger); cursor: pointer; margin-top: 2px;" onclick="deleteRecord(${r.id})">Удалить</div>
+            <div style="font-size: 10px; color: var(--danger); cursor: pointer; margin-top: 2px;" onclick="deleteRecord(${r.id})">${getI18nText('delete')}</div>
           </div>
         `;
         listEl.appendChild(card);
@@ -467,7 +572,7 @@
       chartInstance = new Chart(ctx, {
         type: 'doughnut',
         data: {
-          labels: ['Расходы'],
+          labels: [getI18nText('expense')],
           datasets: [{ data: [totalExp || 1], backgroundColor: ['#d4af37'], borderWidth: 0 }]
         },
         options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
@@ -486,7 +591,7 @@
         card.innerHTML = `
           <div style="display:flex; justify-content:space-between; align-items:center;">
             <b>${g.icon} ${escapeHtml(g.title)}</b>
-            <button class="pill active" style="padding:4px 10px;" onclick="depositGoal(${g.id})">+ Пополнить</button>
+            <button class="pill active" style="padding:4px 10px;" onclick="depositGoal(${g.id})">${getI18nText('depositBtn')}</button>
           </div>
           <div style="font-size:18px; font-weight:bold; margin-top:6px;">
             ${g.current_amount.toFixed(0)} / ${g.target_amount.toFixed(0)} ${g.currency} (${pct}%)
@@ -499,16 +604,22 @@
       });
     }
 
-    async function depositGoal(goalId) {
-      const amt = prompt("Введите сумму пополнения:");
-      if (!amt || isNaN(amt)) return;
-      haptic();
-      await fetch(`/api/goals/${goalId}/deposit`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ telegram_id: tgUser.id, amount: parseFloat(amt) })
-      });
-      fetchGoals();
+    function depositGoal(goalId) {
+      showCustomPrompt(
+        getI18nText('depositTitle'),
+        getI18nText('depositPlaceholder'),
+        async (amt) => {
+          if (!amt || isNaN(amt)) return;
+          haptic();
+          await fetch(`/api/goals/${goalId}/deposit`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ telegram_id: tgUser.id, amount: parseFloat(amt) })
+          });
+          fetchGoals();
+        },
+        'number'
+      );
     }
 
     function renderPlannerList() {
@@ -564,7 +675,7 @@
           formData.append('telegram_id', tgUser.id);
           formData.append('file', audioBlob, 'voice.wav');
 
-          document.getElementById('modalTitle').value = "Распознавание...";
+          document.getElementById('modalTitle').value = "...";
           const res = await fetch('/api/voice', { method: 'POST', body: formData });
           const data = await res.json();
           document.getElementById('modalTitle').value = data.title || "Голосовая запись";
@@ -572,7 +683,9 @@
 
         mediaRecorder.start();
         btn.classList.add('recording');
-      } catch (e) { alert("Не удалось получить доступ к микрофону"); }
+      } catch (e) {
+        showCustomAlert(getI18nText('error'), getI18nText('micFail'), '⚠️');
+      }
     }
 
     async function submitModalRecord() {
@@ -601,7 +714,7 @@
 
       if (!res.ok) {
         const err = await res.json();
-        alert(err.detail);
+        showCustomAlert(getI18nText('error'), err.detail, '⚠️');
         return;
       }
 
@@ -666,7 +779,7 @@
       const target = document.getElementById('directTarget').value.trim();
       const text = document.getElementById('directMessageText').value.trim();
       if (!target || !text) {
-        alert("Заполните ID/username и текст сообщения");
+        showCustomAlert(getI18nText('error'), "Заполните ID/username и текст", '⚠️');
         return;
       }
       haptic();
@@ -678,13 +791,13 @@
         });
         const data = await res.json();
         if (res.ok) {
-          alert(`Сообщение отправлено для: ${data.recipient}`);
+          showCustomAlert(getI18nText('success'), `Отправлено для: ${data.recipient}`, '✉️');
           document.getElementById('directTarget').value = '';
           document.getElementById('directMessageText').value = '';
         } else {
-          alert(`Ошибка: ${data.detail}`);
+          showCustomAlert(getI18nText('error'), data.detail, '❌');
         }
-      } catch (e) { alert("Ошибка при отправке сообщения"); }
+      } catch (e) { showCustomAlert(getI18nText('error'), "Ошибка отправки", '❌'); }
     }
 
     async function toggleUserPremium(targetTgId) {
@@ -705,7 +818,7 @@
       haptic();
       const res = await fetch('/api/admin/broadcast', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ admin_id: tgUser.id, message_text: text }) });
       const data = await res.json();
-      alert(`Успешно отправлено: ${data.success}`);
+      showCustomAlert(getI18nText('success'), `Успешно отправлено: ${data.success}`, '📢');
       document.getElementById('broadcastText').value = '';
     }
 
@@ -713,21 +826,35 @@
       haptic();
       const res = await fetch(`/api/family/create/${tgUser.id}`, { method: 'POST' });
       const data = await res.json();
-      alert(`Код семьи создан: ${data.code}\nПередайте его второму человеку!`);
+      showCustomAlert(
+        getI18nText('familyCodeCreated'),
+        `${getI18nText('familyCodeIs')}: ${data.code}\n${getI18nText('shareWithPartner')}`,
+        '👨‍👩‍👧'
+      );
       fetchUserInfo();
     }
 
-    async function promptJoinFamily() {
-      const code = prompt("Введите 6-значный код семьи:");
-      if (!code) return;
-      haptic();
-      const res = await fetch('/api/family/join', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ telegram_id: tgUser.id, code: code })
-      });
-      if (res.ok) { alert("Вы присоединились к семье!"); fetchUserInfo(); fetchRecords(); }
-      else { alert("Код не найден"); }
+    function promptJoinFamily() {
+      showCustomPrompt(
+        getI18nText('enterFamilyCodeTitle'),
+        getI18nText('enterFamilyCodePlaceholder'),
+        async (code) => {
+          if (!code) return;
+          haptic();
+          const res = await fetch('/api/family/join', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ telegram_id: tgUser.id, code: code })
+          });
+          if (res.ok) {
+            showCustomAlert(getI18nText('success'), getI18nText('joinedFamilySuccess'), '🎉');
+            fetchUserInfo();
+            fetchRecords();
+          } else {
+            showCustomAlert(getI18nText('error'), getI18nText('familyCodeNotFound'), '❌');
+          }
+        }
+      );
     }
 
     async function buyStars(months) {
@@ -740,7 +867,10 @@
       const data = await res.json();
       if (data.invoice_url && tg?.openInvoice) {
         tg.openInvoice(data.invoice_url, (status) => {
-          if (status === 'paid') { alert("Оплата прошла успешно! Премиум активен!"); fetchUserInfo(); }
+          if (status === 'paid') {
+            showCustomAlert(getI18nText('success'), getI18nText('paymentSuccess'), '👑');
+            fetchUserInfo();
+          }
         });
       }
     }
