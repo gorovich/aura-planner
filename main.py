@@ -73,70 +73,83 @@ def run_db_migrations():
 # --- ФОНОВЫЕ ЗАДАЧИ ПЛАНИРОВЩИКА ---
 scheduler = AsyncIOScheduler()
 
+from database import engine, Base, get_db, SessionLocal
+
+# --- ФОНОВЫЕ ЗАДАЧИ С ГАРАНТИРОВАННЫМ ЗАКРЫТИЕМ СОЕДИНЕНИЙ ---
+
 async def check_reminders_and_deadlines():
-    db = next(get_db())
-    yerevan_tz = timezone(timedelta(hours=4))
-    now = datetime.now(yerevan_tz).replace(tzinfo=None)
+    with SessionLocal() as db:
+        try:
+            yerevan_tz = timezone(timedelta(hours=4))
+            now = datetime.now(yerevan_tz).replace(tzinfo=None)
 
-    pending_records = db.query(models.Record).filter(
-        models.Record.due_date <= now,
-        models.Record.is_reminded == False,
-        models.Record.status == "pending"
-    ).all()
+            pending_records = db.query(models.Record).filter(
+                models.Record.due_date <= now,
+                models.Record.is_reminded == False,
+                models.Record.status == "pending"
+            ).all()
 
-    for rec in pending_records:
-        user = db.query(models.User).filter(models.User.id == rec.user_id, models.User.bot_active == True).first()
-        if user:
-            icon = "⏰" if rec.category == "task" else "💳"
-            msg = f"{icon} **Напоминание!**\n\n**{rec.title}**"
-            if rec.amount > 0:
-                msg += f"\nСумма: `{rec.amount:.2f} {rec.currency}`"
-            
-            try:
-                await bot.send_message(user.telegram_id, msg, parse_mode="Markdown")
-                rec.is_reminded = True
-                
-                if rec.is_recurring and rec.recurrence_rule == "monthly":
-                    rec.due_date = rec.due_date + timedelta(days=30)
-                    rec.is_reminded = False
+            for rec in pending_records:
+                user = db.query(models.User).filter(models.User.id == rec.user_id, models.User.bot_active == True).first()
+                if user:
+                    icon = "⏰" if rec.category == "task" else "💳"
+                    msg = f"{icon} **Напоминание!**\n\n**{rec.title}**"
+                    if rec.amount > 0:
+                        msg += f"\nСумма: `{rec.amount:.2f} {rec.currency}`"
                     
-                db.commit()
-            except Exception as e:
-                print(f"Failed to send reminder to {user.telegram_id}: {e}")
+                    try:
+                        await bot.send_message(user.telegram_id, msg, parse_mode="Markdown")
+                        rec.is_reminded = True
+                        
+                        if rec.is_recurring and rec.recurrence_rule == "monthly":
+                            rec.due_date = rec.due_date + timedelta(days=30)
+                            rec.is_reminded = False
+                            
+                        db.commit()
+                    except Exception as e:
+                        print(f"Failed to send reminder to {user.telegram_id}: {e}")
+        except Exception as e:
+            print(f"Reminder check error: {e}")
 
 async def send_daily_digest():
-    try:
-        db = next(get_db())
-        yerevan_tz = timezone(timedelta(hours=4))
-        now = datetime.now(yerevan_tz)
-        
-        users = db.query(models.User).filter(models.User.bot_active == True, models.User.is_blocked == False).all()
-        
-        for user in users:
-            records = db.query(models.Record).filter(models.Record.user_id == user.id).all()
-            inc_total = sum(r.amount for r in records if r.type == "income")
-            exp_total = sum(r.amount for r in records if r.type == "expense")
-            tasks_cnt = sum(1 for r in records if r.category == "task" and r.status == "pending")
+    with SessionLocal() as db:
+        try:
+            yerevan_tz = timezone(timedelta(hours=4))
+            now = datetime.now(yerevan_tz)
             
-            curr = user.currency or "AMD"
-            msg = (
-                f"🌙 **Вечерний Дайджест Aura OS** ({now.strftime('%d.%m')})\n\n"
-                f"📈 Доходы: `{inc_total:.2f} {curr}`\n"
-                f"💸 Расходы: `{exp_total:.2f} {curr}`\n"
-                f"💰 Свободный Баланс: `{(inc_total - exp_total):.2f} {curr}`\n"
-                f"✅ Активных задач: `{tasks_cnt}`\n\n"
-                f"Хорошего вечера!"
-            )
-            try:
-                await bot.send_message(user.telegram_id, msg, parse_mode="Markdown")
-            except Exception:
-                user.bot_active = False
-                db.commit()
-    except Exception as e:
-        print(f"Digest error: {e}")
+            users = db.query(models.User).filter(models.User.bot_active == True, models.User.is_blocked == False).all()
+            
+            for user in users:
+                records = db.query(models.Record).filter(models.Record.user_id == user.id).all()
+                inc_total = sum(r.amount for r in records if r.type == "income")
+                exp_total = sum(r.amount for r in records if r.type == "expense")
+                tasks_cnt = sum(1 for r in records if r.category == "task" and r.status == "pending")
+                
+                curr = user.currency or "AMD"
+                msg = (
+                    f"🌙 **Вечерний Дайджест Aura OS** ({now.strftime('%d.%m')})\n\n"
+                    f"📈 Доходы: `{inc_total:.2f} {curr}`\n"
+                    f"💸 Расходы: `{exp_total:.2f} {curr}`\n"
+                    f"💰 Свободный Баланс: `{(inc_total - exp_total):.2f} {curr}`\n"
+                    f"✅ Активных задач: `{tasks_cnt}`\n\n"
+                    f"Хорошего вечера!"
+                )
+                try:
+                    await bot.send_message(user.telegram_id, msg, parse_mode="Markdown")
+                except Exception:
+                    user.bot_active = False
+                    db.commit()
+        except Exception as e:
+            print(f"Digest error: {e}")
 
 async def run_bot():
-    await asyncio.sleep(3)
+    await asyncio.sleep(5)
+    try:
+        # Сбрасываем возможные конфликты поллинга и старые вебхуки
+        await bot.delete_webhook(drop_pending_updates=True)
+    except Exception as e:
+        print(f"Webhook drop notice: {e}")
+        
     await dp.start_polling(bot, handle_signals=False)
 
 async def keep_alive():
