@@ -19,412 +19,61 @@
       --radius: 16px;
     }
 
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      -webkit-tap-highlight-color: transparent;
-    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; -webkit-tap-highlight-color: transparent; }
+    body { background-color: var(--bg-color); color: var(--text-main); min-height: 100vh; padding-bottom: 90px; }
 
-    body {
-      background-color: var(--bg-color);
-      color: var(--text-main);
-      min-height: 100vh;
-      padding-bottom: 90px;
-      overflow-x: hidden;
-    }
+    .app-header { padding: 16px; display: flex; justify-content: space-between; align-items: center; background: rgba(11, 12, 16, 0.8); backdrop-filter: blur(10px); position: sticky; top: 0; z-index: 10; }
+    .user-info { display: flex; align-items: center; gap: 10px; }
+    .avatar-placeholder { width: 40px; height: 40px; border-radius: 50%; background: var(--gold-gradient); display: flex; align-items: center; justify-content: center; font-weight: bold; color: #000; }
+    .user-name { font-size: 16px; font-weight: 600; }
+    .user-badge { font-size: 11px; color: var(--gold-primary); text-transform: uppercase; letter-spacing: 1px; }
 
-    /* HEADER */
-    .app-header {
-      padding: 20px 16px 12px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      background: rgba(11, 12, 16, 0.8);
-      backdrop-filter: blur(10px);
-      position: sticky;
-      top: 0;
-      z-index: 10;
-    }
+    .tab-content { display: none; padding: 0 16px; animation: fadeIn 0.2s ease-in-out; }
+    .tab-content.active { display: block; }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
-    .user-info {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
+    .balance-card { background: linear-gradient(145deg, rgba(255,255,255,0.07) 0%, rgba(212,175,55,0.05) 100%); border: 1px solid var(--card-border); border-radius: var(--radius); padding: 20px; margin-top: 10px; }
+    .balance-title { font-size: 12px; color: var(--text-muted); text-transform: uppercase; }
+    .balance-amount { font-size: 32px; font-weight: 800; margin: 8px 0 16px; background: var(--gold-gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
 
-    .avatar-placeholder {
-      width: 40px;
-      height: 40px;
-      border-radius: 50%;
-      background: var(--gold-gradient);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-weight: bold;
-      color: #000;
-      box-shadow: 0 0 10px rgba(212, 175, 55, 0.3);
-    }
-
-    .user-name {
-      font-size: 16px;
-      font-weight: 600;
-    }
-
-    .user-badge {
-      font-size: 11px;
-      color: var(--gold-primary);
-      text-transform: uppercase;
-      letter-spacing: 1px;
-    }
-
-    /* TABS */
-    .tab-content {
-      display: none;
-      padding: 0 16px;
-      animation: fadeIn 0.25s ease-in-out;
-    }
-
-    .tab-content.active {
-      display: block;
-    }
-
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(4px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-
-    /* BALANCE CARD */
-    .balance-card {
-      background: linear-gradient(145deg, rgba(255,255,255,0.07) 0%, rgba(212,175,55,0.05) 100%);
-      border: 1px solid var(--card-border);
-      border-radius: var(--radius);
-      padding: 20px;
-      margin-top: 10px;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.37);
-      position: relative;
-      overflow: hidden;
-    }
-
-    .balance-card::before {
-      content: '';
-      position: absolute;
-      top: -50%;
-      right: -50%;
-      width: 100%;
-      height: 100%;
-      background: radial-gradient(circle, rgba(212,175,55,0.15) 0%, transparent 70%);
-      pointer-events: none;
-    }
-
-    .balance-title {
-      font-size: 12px;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 1px;
-    }
-
-    .balance-amount {
-      font-size: 32px;
-      font-weight: 800;
-      margin: 8px 0 16px;
-      background: var(--gold-gradient);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-    }
-
-    .stats-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 12px;
-    }
-
-    .stat-item {
-      background: rgba(0, 0, 0, 0.3);
-      padding: 10px 12px;
-      border-radius: 12px;
-      border: 1px solid rgba(255, 255, 255, 0.03);
-    }
-
-    .stat-label {
-      font-size: 11px;
-      color: var(--text-muted);
-    }
-
-    .stat-val {
-      font-size: 15px;
-      font-weight: 600;
-      margin-top: 2px;
-    }
-
+    .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .stat-item { background: rgba(0,0,0,0.3); padding: 10px; border-radius: 12px; }
+    .stat-label { font-size: 11px; color: var(--text-muted); }
+    .stat-val { font-size: 15px; font-weight: 600; margin-top: 2px; }
     .stat-val.inc { color: var(--success); }
     .stat-val.exp { color: var(--danger); }
 
-    /* SEARCH & CONTROLS */
-    .search-box {
-      margin: 16px 0;
-      position: relative;
-    }
+    .search-box { margin: 14px 0; }
+    .search-input { width: 100%; background: var(--card-bg); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 12px; color: #fff; outline: none; }
 
-    .search-input {
-      width: 100%;
-      background: var(--card-bg);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 12px;
-      padding: 12px 16px;
-      color: #fff;
-      font-size: 14px;
-      outline: none;
-    }
+    .section-title { font-size: 14px; font-weight: 600; color: var(--text-muted); margin: 16px 0 10px; display: flex; justify-content: space-between; }
+    .item-card { background: var(--card-bg); border: 1px solid rgba(255,255,255,0.05); border-radius: 14px; padding: 12px 14px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; }
+    .item-left { display: flex; align-items: center; gap: 12px; }
+    .item-icon { width: 34px; height: 34px; border-radius: 8px; background: rgba(255,255,255,0.05); display: flex; align-items: center; justify-content: center; }
 
-    .search-input:focus {
-      border-color: var(--gold-primary);
-    }
+    .task-checkbox { width: 22px; height: 22px; border-radius: 6px; border: 2px solid var(--gold-primary); display: flex; align-items: center; justify-content: center; cursor: pointer; }
+    .task-checkbox.checked { background: var(--gold-primary); }
+    .task-checkbox.checked::after { content: '✓'; color: #000; font-weight: bold; }
+    .task-title.completed { text-decoration: line-through; color: var(--text-muted); }
 
-    /* LISTS & ITEMS */
-    .section-title {
-      font-size: 14px;
-      font-weight: 600;
-      color: var(--text-muted);
-      margin: 16px 0 10px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
+    .pills-container { display: flex; gap: 8px; margin-bottom: 12px; }
+    .pill { padding: 6px 14px; border-radius: 20px; background: var(--card-bg); border: 1px solid rgba(255,255,255,0.08); font-size: 12px; color: var(--text-muted); cursor: pointer; }
+    .pill.active { background: var(--gold-primary); color: #000; font-weight: 600; }
 
-    .item-card {
-      background: var(--card-bg);
-      border: 1px solid rgba(255, 255, 255, 0.05);
-      border-radius: 14px;
-      padding: 14px 16px;
-      margin-bottom: 10px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      transition: all 0.2s ease;
-    }
+    .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; height: 65px; background: rgba(15, 16, 21, 0.95); backdrop-filter: blur(15px); border-top: 1px solid rgba(255, 255, 255, 0.08); display: flex; justify-content: space-around; align-items: center; z-index: 100; }
+    .nav-btn { display: flex; flex-direction: column; align-items: center; gap: 3px; background: none; border: none; color: var(--text-muted); font-size: 10px; cursor: pointer; flex: 1; }
+    .nav-btn.active { color: var(--gold-primary); }
 
-    .item-card:active {
-      transform: scale(0.98);
-    }
+    .fab { position: fixed; bottom: 80px; right: 20px; width: 50px; height: 50px; border-radius: 50%; background: var(--gold-gradient); color: #000; font-size: 26px; font-weight: bold; display: flex; align-items: center; justify-content: center; border: none; cursor: pointer; z-index: 90; }
 
-    .item-left {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-
-    .item-icon {
-      width: 36px;
-      height: 36px;
-      border-radius: 10px;
-      background: rgba(255, 255, 255, 0.05);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 16px;
-    }
-
-    .item-title {
-      font-size: 14px;
-      font-weight: 500;
-      color: #fff;
-    }
-
-    .item-sub {
-      font-size: 11px;
-      color: var(--text-muted);
-      margin-top: 2px;
-    }
-
-    .item-amount {
-      font-size: 15px;
-      font-weight: 600;
-      text-align: right;
-    }
-
-    .item-amount.inc { color: var(--success); }
-    .item-amount.exp { color: var(--text-main); }
-
-    /* CHECKBOX FOR PLANNER */
-    .task-checkbox {
-      width: 22px;
-      height: 22px;
-      border-radius: 6px;
-      border: 2px solid var(--gold-primary);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-
-    .task-checkbox.checked {
-      background: var(--gold-primary);
-    }
-
-    .task-checkbox.checked::after {
-      content: '✓';
-      color: #000;
-      font-size: 14px;
-      font-weight: bold;
-    }
-
-    .task-title.completed {
-      text-decoration: line-through;
-      color: var(--text-muted);
-    }
-
-    /* FILTER PILLS */
-    .pills-container {
-      display: flex;
-      gap: 8px;
-      margin-bottom: 14px;
-    }
-
-    .pill {
-      padding: 6px 14px;
-      border-radius: 20px;
-      background: var(--card-bg);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      font-size: 12px;
-      color: var(--text-muted);
-      cursor: pointer;
-    }
-
-    .pill.active {
-      background: var(--gold-primary);
-      color: #000;
-      font-weight: 600;
-      border-color: var(--gold-primary);
-    }
-
-    /* BOTTOM NAV BAR */
-    .bottom-nav {
-      position: fixed;
-      bottom: 0;
-      left: 0;
-      right: 0;
-      height: 70px;
-      background: rgba(15, 16, 21, 0.95);
-      backdrop-filter: blur(15px);
-      border-top: 1px solid rgba(255, 255, 255, 0.08);
-      display: flex;
-      justify-content: space-around;
-      align-items: center;
-      z-index: 100;
-    }
-
-    .nav-btn {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 4px;
-      background: none;
-      border: none;
-      color: var(--text-muted);
-      font-size: 10px;
-      cursor: pointer;
-      width: 33%;
-    }
-
-    .nav-btn icon {
-      font-size: 20px;
-    }
-
-    .nav-btn.active {
-      color: var(--gold-primary);
-    }
-
-    /* FAB BUTTON */
-    .fab {
-      position: fixed;
-      bottom: 85px;
-      right: 20px;
-      width: 52px;
-      height: 52px;
-      border-radius: 50%;
-      background: var(--gold-gradient);
-      color: #000;
-      font-size: 26px;
-      font-weight: bold;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      box-shadow: 0 4px 20px rgba(212, 175, 55, 0.4);
-      border: none;
-      cursor: pointer;
-      z-index: 90;
-    }
-
-    /* MODAL */
-    .modal-overlay {
-      position: fixed;
-      top: 0; left: 0; right: 0; bottom: 0;
-      background: rgba(0, 0, 0, 0.8);
-      backdrop-filter: blur(5px);
-      display: none;
-      align-items: center;
-      justify-content: center;
-      z-index: 200;
-      padding: 20px;
-    }
-
-    .modal-overlay.active {
-      display: flex;
-    }
-
-    .modal-card {
-      background: #15161c;
-      border: 1px solid var(--card-border);
-      border-radius: var(--radius);
-      padding: 20px;
-      width: 100%;
-      max-width: 360px;
-    }
-
-    .modal-title {
-      font-size: 18px;
-      font-weight: 600;
-      margin-bottom: 16px;
-      color: var(--gold-primary);
-    }
-
-    .form-group {
-      margin-bottom: 14px;
-    }
-
-    .form-label {
-      font-size: 12px;
-      color: var(--text-muted);
-      margin-bottom: 6px;
-      display: block;
-    }
-
-    .form-input, .form-select {
-      width: 100%;
-      background: var(--card-bg);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 10px;
-      padding: 10px 12px;
-      color: #fff;
-      font-size: 14px;
-      outline: none;
-    }
-
-    .btn-submit {
-      width: 100%;
-      background: var(--gold-gradient);
-      border: none;
-      border-radius: 10px;
-      padding: 12px;
-      color: #000;
-      font-weight: 600;
-      font-size: 15px;
-      margin-top: 10px;
-      cursor: pointer;
-    }
+    .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.8); backdrop-filter: blur(5px); display: none; align-items: center; justify-content: center; z-index: 200; padding: 20px; }
+    .modal-overlay.active { display: flex; }
+    .modal-card { background: #15161c; border: 1px solid var(--card-border); border-radius: var(--radius); padding: 20px; width: 100%; max-width: 360px; }
+    .modal-title { font-size: 18px; font-weight: 600; margin-bottom: 14px; color: var(--gold-primary); }
+    .form-group { margin-bottom: 12px; }
+    .form-label { font-size: 12px; color: var(--text-muted); margin-bottom: 4px; display: block; }
+    .form-input, .form-select { width: 100%; background: var(--card-bg); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 10px; color: #fff; outline: none; }
+    .btn-submit { width: 100%; background: var(--gold-gradient); border: none; border-radius: 10px; padding: 12px; color: #000; font-weight: 600; margin-top: 8px; cursor: pointer; }
   </style>
 </head>
 <body>
@@ -443,27 +92,27 @@
   <!-- TAB 1: FINANCE -->
   <div id="tab-finance" class="tab-content active">
     <div class="balance-card">
-      <div class="balance-title">Свободный баланс</div>
+      <div class="balance-title" data-i18n="balance">Свободный баланс</div>
       <div class="balance-amount" id="balanceVal">0.00 AMD</div>
       <div class="stats-grid">
         <div class="stat-item">
-          <div class="stat-label">Доходы</div>
+          <div class="stat-label" data-i18n="income">Доходы</div>
           <div class="stat-val inc" id="incomeVal">+0.00</div>
         </div>
         <div class="stat-item">
-          <div class="stat-label">Расходы</div>
+          <div class="stat-label" data-i18n="expense">Расходы</div>
           <div class="stat-val exp" id="expenseVal">-0.00</div>
         </div>
       </div>
     </div>
 
     <div class="search-box">
-      <input type="text" class="search-input" id="searchFinance" placeholder="🔍 Поиск по расходам и доходам..." oninput="renderFinanceList()">
+      <input type="text" class="search-input" id="searchFinance" placeholder="🔍 Поиск..." oninput="renderFinanceList()">
     </div>
 
     <div class="section-title">
-      <span>История операций</span>
-      <span id="financeCount" style="font-size: 11px;">0 записей</span>
+      <span data-i18n="history">История операций</span>
+      <span id="financeCount" style="font-size: 11px;">0</span>
     </div>
 
     <div id="financeList"></div>
@@ -472,14 +121,14 @@
   <!-- TAB 2: PLANNER -->
   <div id="tab-planner" class="tab-content">
     <div class="section-title" style="margin-top: 10px;">
-      <span>Менеджер задач</span>
-      <span id="taskCounter" style="font-size: 11px;">0 активных</span>
+      <span data-i18n="planner">Менеджер задач</span>
+      <span id="taskCounter" style="font-size: 11px;">0</span>
     </div>
 
     <div class="pills-container">
-      <button class="pill active" onclick="setTaskFilter('all', this)">Все</button>
-      <button class="pill" onclick="setTaskFilter('pending', this)">В процессе</button>
-      <button class="pill" onclick="setTaskFilter('completed', this)">Выполнено</button>
+      <button class="pill active" onclick="setTaskFilter('all', this)" data-i18n="all">Все</button>
+      <button class="pill" onclick="setTaskFilter('pending', this)" data-i18n="pending">В процессе</button>
+      <button class="pill" onclick="setTaskFilter('completed', this)" data-i18n="completed">Выполнено</button>
     </div>
 
     <div id="plannerList"></div>
@@ -487,106 +136,154 @@
 
   <!-- TAB 3: SETTINGS -->
   <div id="tab-settings" class="tab-content">
-    <div class="section-title" style="margin-top: 10px;">Настройки профиля</div>
+    <div class="section-title" style="margin-top: 10px;" data-i18n="settings">Настройки профиля</div>
     
-    <div class="balance-card" style="margin-bottom: 16px;">
+    <div class="balance-card">
       <div class="form-group">
-        <label class="form-label">Основная валюта учета</label>
+        <label class="form-label" data-i18n="currency">Основная валюта учета</label>
         <select class="form-select" id="currencySelect" onchange="saveUserSettings()">
-          <option value="AMD">AMD (Армянский Драм)</option>
-          <option value="USD">USD (Доллар США)</option>
-          <option value="RUB">RUB (Российский Рубль)</option>
+          <option value="AMD">AMD (Դրամ)</option>
+          <option value="USD">USD ($)</option>
+          <option value="RUB">RUB (₽)</option>
         </select>
       </div>
 
       <div class="form-group" style="margin-bottom: 0;">
-        <label class="form-label">Язык интерфейса</label>
+        <label class="form-label" data-i18n="language">Язык интерфейса</label>
         <select class="form-select" id="languageSelect" onchange="saveUserSettings()">
           <option value="ru">Русский</option>
           <option value="hy">Հայերեն</option>
         </select>
       </div>
     </div>
+  </div>
 
-    <div style="font-size: 12px; color: var(--text-muted); text-align: center; margin-top: 20px;">
-      Aura OS Royal Gold Edition • v2.5<br>
-      Telegram WebApp Connected
+  <!-- TAB 4: ADMIN (ПОКАЗЫВАЕТСЯ ТОЛЬКО АДМИНУ) -->
+  <div id="tab-admin" class="tab-content">
+    <div class="section-title" style="margin-top: 10px;"> Панель Администратора</div>
+    
+    <div class="balance-card" id="adminStatsBox">
+      <div style="font-size: 13px; color: var(--text-muted);">Загрузка статистики...</div>
+    </div>
+
+    <div class="section-title">Рассылка пользователям</div>
+    <div class="balance-card">
+      <div class="form-group">
+        <textarea class="form-input" id="broadcastText" rows="3" placeholder="Текст рассылки..."></textarea>
+      </div>
+      <button class="btn-submit" onclick="sendBroadcast()">Отправить рассылку</button>
     </div>
   </div>
 
   <!-- FAB (+) BUTTON -->
   <button class="fab" onclick="openModal()">+</button>
 
-  <!-- MODAL FOR ADDING RECORD -->
+  <!-- MODAL -->
   <div class="modal-overlay" id="addModal">
     <div class="modal-card">
-      <div class="modal-title">Новая запись</div>
+      <div class="modal-title" data-i18n="newRecord">Новая запись</div>
       
       <div class="form-group">
-        <label class="form-label">Описание / Название</label>
-        <input type="text" class="form-input" id="modalTitle" placeholder="Например: Бензин или Заехать на сервис">
+        <input type="text" class="form-input" id="modalTitle" placeholder="Заголовок или сумма...">
       </div>
 
       <div class="form-group">
-        <label class="form-label">Тип записи</label>
+        <label class="form-label" data-i18n="type">Тип записи</label>
         <select class="form-select" id="modalType">
-          <option value="task">📝 Задача (Планер)</option>
-          <option value="expense">💸 Расход (Финансы)</option>
-          <option value="income">📈 Доход (Финансы)</option>
+          <option value="income" data-i18n="incType">📈 Доход (Финансы)</option>
+          <option value="expense" data-i18n="expType">💸 Расход (Финансы)</option>
+          <option value="task" data-i18n="task">📝 Задача (Планер)</option>
         </select>
       </div>
 
-      <button class="btn-submit" onclick="submitModalRecord()">Сохранить</button>
-      <button class="btn-submit" style="background: transparent; color: var(--text-muted); margin-top: 4px;" onclick="closeModal()">Отмена</button>
+      <button class="btn-submit" onclick="submitModalRecord()" data-i18n="save">Сохранить</button>
+      <button class="btn-submit" style="background: transparent; color: var(--text-muted);" onclick="closeModal()" data-i18n="cancel">Отмена</button>
     </div>
   </div>
 
-  <!-- BOTTOM NAVIGATION -->
+  <!-- BOTTOM NAV -->
   <div class="bottom-nav">
     <button class="nav-btn active" onclick="switchTab('tab-finance', this)">
       <span style="font-size: 18px;">💰</span>
-      <span>Финансы</span>
+      <span data-i18n="finance">Финансы</span>
     </button>
     <button class="nav-btn" onclick="switchTab('tab-planner', this)">
       <span style="font-size: 18px;">📅</span>
-      <span>Планер</span>
+      <span data-i18n="planner">Планер</span>
+    </button>
+    <button class="nav-btn" id="adminNavBtn" style="display: none;" onclick="switchTab('tab-admin', this)">
+      <span style="font-size: 18px;">👑</span>
+      <span data-i18n="admin">Админ</span>
     </button>
     <button class="nav-btn" onclick="switchTab('tab-settings', this)">
       <span style="font-size: 18px;">⚙️</span>
-      <span>Настройки</span>
+      <span data-i18n="settings">Настройки</span>
     </button>
   </div>
 
   <script>
     const tg = window.Telegram?.WebApp;
-    if (tg) {
-      tg.ready();
-      tg.expand();
-    }
+    if (tg) { tg.ready(); tg.expand(); }
 
     const tgUser = tg?.initDataUnsafe?.user || { id: 1689610141, first_name: "Пользователь", username: "user" };
-    
+
+    // СЛОВАРЬ ЛОКАЛИЗАЦИИ
+    const i18n = {
+      ru: {
+        balance: "Свободный баланс", income: "Доходы", expense: "Расходы",
+        history: "История операций", planner: "Менеджер задач",
+        all: "Все", pending: "В процессе", completed: "Выполнено",
+        settings: "Настройки профиля", currency: "Основная валюта учета",
+        language: "Язык интерфейса", admin: "Админ", newRecord: "Новая запись",
+        type: "Тип записи", task: "📝 Задача (Планер)", expType: "💸 Расход (Финансы)",
+        incType: "📈 Доход (Финансы)", save: "Сохранить", cancel: "Отмена", finance: "Финансы"
+      },
+      hy: {
+        balance: "Ազատ մնացորդ", income: "Եկամուտներ", expense: "Ծախսեր",
+        history: "Գործարքների պատմություն", planner: "Առաջադրանքներ",
+        all: "Բոլորը", pending: "Ընթացքի մեջ", completed: "Կատարված",
+        settings: "Կարգավորումներ", currency: "Հիմնական արժույթ",
+        language: "Ինտերֆեյսի լեզուն", admin: "Ադմին", newRecord: "Նոր գրանցում",
+        type: "Տեսակը", task: "📝 Առաջադրանք", expType: "💸 Ծախս (Ֆինանսներ)",
+        incType: "📈 Եկամուտ (Ֆինանսներ)", save: "Պահպանել", cancel: "Չեղարկել", finance: "Ֆինանսներ"
+      }
+    };
+
     let allRecords = [];
-    let userSettings = { currency: 'AMD', language: 'ru' };
+    let userSettings = { currency: 'AMD', language: 'ru', is_admin: false };
     let currentTaskFilter = 'all';
 
-    // INITIALIZATION
     async function initApp() {
-      document.getElementById('userName').innerText = tgUser.first_name || "Пользователь";
+      document.getElementById('userName').innerText = tgUser.first_name || "User";
       document.getElementById('userAvatar').innerText = (tgUser.first_name || "A")[0].toUpperCase();
 
       await fetchUserInfo();
       await fetchRecords();
     }
 
-    // API CALLS
+    function applyLanguage(lang) {
+      const dict = i18n[lang] || i18n.ru;
+      document.querySelectorAll('[data-i18n]').forEach(el => {
+        const key = el.getAttribute('data-i18n');
+        if (dict[key]) el.innerText = dict[key];
+      });
+    }
+
     async function fetchUserInfo() {
       try {
         const res = await fetch(`/api/user/${tgUser.id}?first_name=${encodeURIComponent(tgUser.first_name)}&username=${encodeURIComponent(tgUser.username || '')}`);
         const data = await res.json();
         userSettings = data;
+        
         document.getElementById('currencySelect').value = data.currency || 'AMD';
         document.getElementById('languageSelect').value = data.language || 'ru';
+        
+        // Показываем кнопку админа если пользователь админ
+        if (data.is_admin) {
+          document.getElementById('adminNavBtn').style.display = 'flex';
+        }
+
+        applyLanguage(data.language || 'ru');
       } catch (e) {
         console.error("User info error:", e);
       }
@@ -614,10 +311,12 @@
         body: JSON.stringify({ telegram_id: tgUser.id, currency: curr, language: lang })
       });
       userSettings.currency = curr;
+      userSettings.language = lang;
+
+      applyLanguage(lang);
       renderFinanceList();
     }
 
-    // RENDER FINANCE
     function renderFinanceList() {
       const listEl = document.getElementById('financeList');
       const query = document.getElementById('searchFinance').value.toLowerCase();
@@ -647,9 +346,11 @@
               <div class="item-sub">${isInc ? 'Зачисление' : 'Списание'}</div>
             </div>
           </div>
-          <div class="item-amount ${isInc ? 'inc' : 'exp'}">
-            ${isInc ? '+' : '-'}${r.amount.toFixed(2)} ${r.currency || userSettings.currency}
-            <div style="font-size: 10px; color: var(--danger); cursor: pointer; margin-top: 4px;" onclick="deleteRecord(${r.id})">Удалить</div>
+          <div style="text-align: right;">
+            <div style="font-weight:600; color: ${isInc ? 'var(--success)' : '#fff'}">
+              ${isInc ? '+' : '-'}${r.amount.toFixed(2)} ${r.currency || userSettings.currency}
+            </div>
+            <div style="font-size: 10px; color: var(--danger); cursor: pointer; margin-top: 2px;" onclick="deleteRecord(${r.id})">Удалить</div>
           </div>
         `;
         listEl.appendChild(card);
@@ -659,10 +360,9 @@
       document.getElementById('balanceVal').innerText = `${netBalance.toFixed(2)} ${userSettings.currency}`;
       document.getElementById('incomeVal').innerText = `+${totalInc.toFixed(2)}`;
       document.getElementById('expenseVal').innerText = `-${totalExp.toFixed(2)}`;
-      document.getElementById('financeCount').innerText = `${count} записей`;
+      document.getElementById('financeCount').innerText = `${count}`;
     }
 
-    // RENDER PLANNER
     function renderPlannerList() {
       const listEl = document.getElementById('plannerList');
       listEl.innerHTML = '';
@@ -684,7 +384,6 @@
             <div class="task-checkbox ${isCompleted ? 'checked' : ''}" onclick="toggleTaskStatus(${r.id}, '${r.status}')"></div>
             <div>
               <div class="item-title ${isCompleted ? 'completed' : ''}">${escapeHtml(r.title)}</div>
-              <div class="item-sub">${isCompleted ? 'Выполнено' : 'В процессе'}</div>
             </div>
           </div>
           <div>
@@ -694,23 +393,77 @@
         listEl.appendChild(card);
       });
 
-      document.getElementById('taskCounter').innerText = `${activeCnt} активных`;
+      document.getElementById('taskCounter').innerText = `${activeCnt}`;
     }
 
-    // ACTIONS
+    async function submitModalRecord() {
+      const title = document.getElementById('modalTitle').value.trim();
+      const selType = document.getElementById('modalType').value;
+      if (!title) return;
+
+      let cat = 'finance';
+      let typ = 'expense';
+
+      if (selType === 'income') { cat = 'finance'; typ = 'income'; }
+      else if (selType === 'expense') { cat = 'finance'; typ = 'expense'; }
+      else if (selType === 'task') { cat = 'task'; typ = 'expense'; }
+
+      haptic();
+      const res = await fetch('/api/records', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          telegram_id: tgUser.id,
+          title: title,
+          category: cat,
+          type: typ
+        })
+      });
+
+      const newRec = await res.json();
+      allRecords.unshift(newRec);
+
+      closeModal();
+      document.getElementById('modalTitle').value = '';
+      renderFinanceList();
+      renderPlannerList();
+    }
+
+    async function fetchAdminStats() {
+      try {
+        const res = await fetch(`/api/admin/stats/${tgUser.id}`);
+        const data = await res.json();
+        document.getElementById('adminStatsBox').innerHTML = `
+          <div style="font-size:13px; line-height: 1.8;">
+            👥 Всего юзеров: <b>${data.total_users}</b><br>
+            🤖 Активных в боте: <b>${data.active_bot_users}</b><br>
+            💎 Премиум юзеров: <b>${data.premium_users}</b><br>
+            📝 Всего записей: <b>${data.total_records}</b>
+          </div>
+        `;
+      } catch (e) { console.error(e); }
+    }
+
+    async function sendBroadcast() {
+      const text = document.getElementById('broadcastText').value.trim();
+      if (!text) return;
+      haptic();
+      const res = await fetch('/api/admin/broadcast', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ admin_id: tgUser.id, message_text: text })
+      });
+      const data = await res.json();
+      alert(`Успешно отправлено: ${data.success}`);
+      document.getElementById('broadcastText').value = '';
+    }
+
     async function toggleTaskStatus(id, currentStatus) {
       haptic();
       const rec = allRecords.find(r => r.id === id);
       if (rec) {
         rec.status = currentStatus === 'completed' ? 'pending' : 'completed';
         renderPlannerList();
-        
-        // Переключение на бэке через ресоздание/триггер или быстрый запрос
-        await fetch('/api/records', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ telegram_id: tgUser.id, title: rec.title })
-        });
       }
     }
 
@@ -722,26 +475,6 @@
       renderPlannerList();
     }
 
-    async function submitModalRecord() {
-      const title = document.getElementById('modalTitle').value.trim();
-      if (!title) return;
-
-      haptic();
-      const res = await fetch('/api/records', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ telegram_id: tgUser.id, title: title })
-      });
-      const newRec = await res.json();
-      allRecords.unshift(newRec);
-
-      closeModal();
-      document.getElementById('modalTitle').value = '';
-      renderFinanceList();
-      renderPlannerList();
-    }
-
-    // UI HELPERS
     function switchTab(tabId, btn) {
       haptic();
       document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
@@ -749,6 +482,8 @@
 
       document.getElementById(tabId).classList.add('active');
       btn.classList.add('active');
+
+      if (tabId === 'tab-admin') fetchAdminStats();
     }
 
     function setTaskFilter(filter, btn) {
