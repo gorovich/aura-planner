@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 import speech_recognition as sr
 from pydub import AudioSegment
 
-from database import engine, Base, get_db
+from database import engine, Base, get_db, SessionLocal
 import models
 
 from aiogram import Bot, Dispatcher, types, F
@@ -72,10 +72,6 @@ def run_db_migrations():
 
 # --- ФОНОВЫЕ ЗАДАЧИ ПЛАНИРОВЩИКА ---
 scheduler = AsyncIOScheduler()
-
-from database import engine, Base, get_db, SessionLocal
-
-# --- ФОНОВЫЕ ЗАДАЧИ С ГАРАНТИРОВАННЫМ ЗАКРЫТИЕМ СОЕДИНЕНИЙ ---
 
 async def check_reminders_and_deadlines():
     with SessionLocal() as db:
@@ -145,7 +141,6 @@ async def send_daily_digest():
 async def run_bot():
     await asyncio.sleep(5)
     try:
-        # Сбрасываем возможные конфликты поллинга и старые вебхуки
         await bot.delete_webhook(drop_pending_updates=True)
     except Exception as e:
         print(f"Webhook drop notice: {e}")
@@ -253,6 +248,8 @@ class UserSettings(BaseModel):
 class RecordCreate(BaseModel):
     telegram_id: int
     title: str
+    category: Optional[str] = None
+    type: Optional[str] = None
 
 class ShortcutPayload(BaseModel):
     text: str
@@ -272,7 +269,15 @@ class AdminDirectMessage(BaseModel):
 
 
 # --- ПАРСЕР И РЕГИСТРАЦИЯ ЮЗЕРА ---
-def parse_and_save(telegram_id: int, text: str, db: Session, first_name: str = None, username: str = None):
+def parse_and_save(
+    telegram_id: int, 
+    text: str, 
+    db: Session, 
+    first_name: str = None, 
+    username: str = None,
+    category_override: Optional[str] = None,
+    type_override: Optional[str] = None
+):
     user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
     is_adm = (telegram_id == ADMIN_TELEGRAM_ID)
     
@@ -298,8 +303,8 @@ def parse_and_save(telegram_id: int, text: str, db: Session, first_name: str = N
         raise HTTPException(status_code=403, detail="Пользователь заблокирован")
 
     base_currency = user.currency or "AMD"
-    category = "task"
-    rec_type = "expense"
+    category = category_override or "task"
+    rec_type = type_override or "expense"
     amount = 0.0
     detected_currency = None
     text_lower = text.lower()
@@ -319,74 +324,20 @@ def parse_and_save(telegram_id: int, text: str, db: Session, first_name: str = N
     if numbers:
         amount = float(numbers[0])
         if any(k in text_lower for k in ["млн", "миллион", "միլիոն", "million"]):
-            if amount < 1000000:
-                amount *= 1000000
+            if amount < 1000000: amount *= 1000000
         elif any(k in text_lower for k in ["тыс", "հազար", "k", "thousand"]):
-            if amount < 1000:
-                amount *= 1000
-    else:
-        units = {
-            "մեկ": 1, "մեկը": 1, "երկու": 2, "երեք": 3, "չորս": 4, "հինգ": 5,
-            "վեց": 6, "յոթ": 7, "ութ": 8, "ինը": 9, "ինն": 9,
-            "один": 1, "одна": 1, "два": 2, "две": 2, "три": 3, "четыре": 4,
-            "пять": 5, "шесть": 6, "семь": 7, "восемь": 8, "девять": 9, "one": 1, "two": 2
-        }
-        tens = {
-            "տաս": 10, "տասն": 10, "քսան": 20, "երեսուն": 30, "քառասուն": 40, "հիսուն": 50,
-            "վաթսուն": 60, "յոթանասուն": 70, "ութսուն": 80, "իննսուն": 90,
-            "десять": 10, "двадцать": 20, "тридцать": 30, "сорок": 40, "пятьдесят": 50,
-            "шестьдесят": 60, "семьдесят": 70, "восемьдесят": 80, "девяносто": 90
-        }
-        hundreds = {
-            "հարյուր": 100, "сто": 100, "двести": 200, "триста": 300, "четыреста": 400,
-            "пятьсот": 500, "шестьсот": 600, "семьсот": 700, "восемьсот": 800, "девятьсот": 900
-        }
+            if amount < 1000: amount *= 1000
 
-        words = re.findall(r'\w+', text_lower)
-        total = 0.0
-        curr_val = 0.0
+    if not category_override and not type_override:
+        income_triggers = ["зарплат", "получк", "аванс", "преми", "доход", "получил", "перевод", "прибыль", "ստացա", "եկամուտ", "աշխատավարձ", "salary", "income", "profit"]
+        expense_triggers = ["руб", "$", "драм", "֏", "купил", "потратил", "цена", "кофе", "заправк", "бензин", "ремонт", "оплат", "еда", "такси", "ծախս", "գնեցի", "սուրճ", "տաքսի", "bought", "spent", "coffee", "food"]
 
-        for w in words:
-            if w in units:
-                curr_val += units[w]
-            elif w in tens:
-                curr_val += tens[w]
-            elif w in hundreds:
-                curr_val += hundreds[w]
-            elif w in ["հազար", "тысяча", "тысячи", "тысяч", "тыс"]:
-                if curr_val == 0:
-                    curr_val = 1
-                total += curr_val * 1000
-                curr_val = 0
-            elif w in ["միլիոն", "միլիոնն", "մլն", "миллион", "миллиона", "миллионов", "млн", "million"]:
-                if curr_val == 0:
-                    curr_val = 1
-                total += curr_val * 1000000
-                curr_val = 0
-
-        total += curr_val
-        amount = float(total)
-
-    income_triggers = [
-        "зарплат", "получк", "аванс", "преми", "калым", "доход", "получил", "перевод", "прибыль", 
-        "пополнен", "продаж", "дивиденд", "кэшбэк", "кешбек", "стейкинг", "крипт", "процент", "подарок", "фриланс",
-        "ստացա", "եկամուտ", "աշխատավարձ", "փոխանցում", "նվեր", "վաճառք", "շահույթ", "կանխավճար", "մուտք", "ավելացավ", "եկամուտներ",
-        "salary", "paycheck", "income", "bonus", "profit", "gift", "crypto", "cashback", "dividend", "sale", "freelance"
-    ]
-    expense_triggers = [
-        "руб", "$", "драм", "֏", "купил", "потратил", "цена", "стоил", "кофе", "заправк", "бензин", "ремонт", "оплат",
-        "еда", "ужин", "обед", "завтрак", "ресторан", "кафе", "продукты", "такси", "парикмахер", "аренда",
-        "коммунал", "связь", "интернет", "аптек", "врач", "bmw", "запчаст", "масло", "сервис", "мойк",
-        "ծախս", "գնեցի", "սուրճ", "կոֆե", "ինվեստ", "բենզին", "ավտո", "տաքսի", "վարձ", "ուտելիք", "հաց", "դեղ", "սպասարկում",
-        "bought", "paid", "spent", "coffee", "food", "taxi", "rent", "bmw", "parts", "auto", "gas", "petrol", "dinner"
-    ]
-
-    if any(k in text_lower for k in income_triggers):
-        category = "finance"
-        rec_type = "income"
-    elif amount > 0 or any(k in text_lower for k in expense_triggers):
-        category = "finance"
-        rec_type = "expense"
+        if any(k in text_lower for k in income_triggers):
+            category = "finance"
+            rec_type = "income"
+        elif amount > 0 or any(k in text_lower for k in expense_triggers):
+            category = "finance"
+            rec_type = "expense"
 
     if category == "finance" and amount > 0:
         amount = convert_currency(amount, detected_currency, base_currency)
@@ -470,7 +421,13 @@ def get_records(telegram_id: int, db: Session = Depends(get_db)):
 
 @app.post("/api/records")
 def create_record(data: RecordCreate, db: Session = Depends(get_db)):
-    record = parse_and_save(data.telegram_id, data.title, db)
+    record = parse_and_save(
+        data.telegram_id, 
+        data.title, 
+        db, 
+        category_override=data.category, 
+        type_override=data.type
+    )
     return {
         "status": "ok",
         "id": record.id,
