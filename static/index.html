@@ -158,21 +158,35 @@
     </div>
   </div>
 
-  <!-- TAB 4: ADMIN (ПОКАЗЫВАЕТСЯ ТОЛЬКО АДМИНУ) -->
+  <!-- TAB 4: ADMIN -->
   <div id="tab-admin" class="tab-content">
-    <div class="section-title" style="margin-top: 10px;"> Панель Администратора</div>
+    <div class="section-title" style="margin-top: 10px;">👑 Панель Администратора</div>
     
     <div class="balance-card" id="adminStatsBox">
       <div style="font-size: 13px; color: var(--text-muted);">Загрузка статистики...</div>
     </div>
 
-    <div class="section-title">Рассылка пользователям</div>
+    <div class="section-title">📢 Рассылка всем пользователям</div>
     <div class="balance-card">
       <div class="form-group">
         <textarea class="form-input" id="broadcastText" rows="3" placeholder="Текст рассылки..."></textarea>
       </div>
       <button class="btn-submit" onclick="sendBroadcast()">Отправить рассылку</button>
     </div>
+
+    <div class="section-title">✉️ Личное сообщение</div>
+    <div class="balance-card">
+      <div class="form-group">
+        <input type="text" class="form-input" id="directTarget" placeholder="Telegram ID или @username">
+      </div>
+      <div class="form-group">
+        <textarea class="form-input" id="directMessageText" rows="3" placeholder="Текст личного сообщения..."></textarea>
+      </div>
+      <button class="btn-submit" onclick="sendDirectMessage()">Отправить сообщение</button>
+    </div>
+
+    <div class="section-title">👥 Список пользователей</div>
+    <div id="adminUsersList"></div>
   </div>
 
   <!-- FAB (+) BUTTON -->
@@ -227,7 +241,6 @@
 
     const tgUser = tg?.initDataUnsafe?.user || { id: 1689610141, first_name: "Пользователь", username: "user" };
 
-    // СЛОВАРЬ ЛОКАЛИЗАЦИИ
     const i18n = {
       ru: {
         balance: "Свободный баланс", income: "Доходы", expense: "Расходы",
@@ -278,7 +291,6 @@
         document.getElementById('currencySelect').value = data.currency || 'AMD';
         document.getElementById('languageSelect').value = data.language || 'ru';
         
-        // Показываем кнопку админа если пользователь админ
         if (data.is_admin) {
           document.getElementById('adminNavBtn').style.display = 'flex';
         }
@@ -431,17 +443,101 @@
 
     async function fetchAdminStats() {
       try {
-        const res = await fetch(`/api/admin/stats/${tgUser.id}`);
-        const data = await res.json();
+        const resStats = await fetch(`/api/admin/stats/${tgUser.id}`);
+        const data = await resStats.json();
         document.getElementById('adminStatsBox').innerHTML = `
           <div style="font-size:13px; line-height: 1.8;">
             👥 Всего юзеров: <b>${data.total_users}</b><br>
             🤖 Активных в боте: <b>${data.active_bot_users}</b><br>
             💎 Премиум юзеров: <b>${data.premium_users}</b><br>
+            🚫 Заблокировано: <b>${data.banned_users}</b><br>
             📝 Всего записей: <b>${data.total_records}</b>
           </div>
         `;
-      } catch (e) { console.error(e); }
+
+        const resUsers = await fetch(`/api/admin/users/${tgUser.id}`);
+        const users = await resUsers.json();
+        const usersListEl = document.getElementById('adminUsersList');
+        usersListEl.innerHTML = '';
+
+        users.forEach(u => {
+          const card = document.createElement('div');
+          card.className = 'item-card';
+          card.style.flexDirection = 'column';
+          card.style.alignItems = 'flex-start';
+          card.style.gap = '8px';
+          
+          card.innerHTML = `
+            <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
+              <div>
+                <b>${escapeHtml(u.first_name)}</b> ${u.username ? '(@' + escapeHtml(u.username) + ')' : ''}
+                <div style="font-size:11px; color:var(--text-muted);">ID: ${u.telegram_id} | Записей: ${u.records_count}</div>
+              </div>
+              <div style="font-size:12px;">
+                ${u.is_premium ? '💎 Premium' : ''}
+                ${u.is_blocked ? '🚫 Banned' : ''}
+              </div>
+            </div>
+            <div style="display:flex; gap:8px; width:100%; margin-top:4px;">
+              <button class="btn-submit" style="padding:6px; font-size:11px; margin:0; flex:1;" onclick="toggleUserPremium(${u.telegram_id})">
+                ${u.is_premium ? 'Снять Premium' : 'Дать Premium'}
+              </button>
+              <button class="btn-submit" style="padding:6px; font-size:11px; margin:0; flex:1; background:var(--danger); color:#fff;" onclick="toggleUserBan(${u.telegram_id})">
+                ${u.is_blocked ? 'Разбанить' : 'Забанить'}
+              </button>
+            </div>
+          `;
+          usersListEl.appendChild(card);
+        });
+
+      } catch (e) { console.error("Admin stats fetch error:", e); }
+    }
+
+    async function sendDirectMessage() {
+      const target = document.getElementById('directTarget').value.trim();
+      const text = document.getElementById('directMessageText').value.trim();
+      if (!target || !text) {
+        alert("Заполните ID/username и текст сообщения");
+        return;
+      }
+      haptic();
+      try {
+        const res = await fetch('/api/admin/direct-message', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ admin_id: tgUser.id, target: target, message_text: text })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          alert(`Сообщение отправлено для: ${data.recipient}`);
+          document.getElementById('directTarget').value = '';
+          document.getElementById('directMessageText').value = '';
+        } else {
+          alert(`Ошибка: ${data.detail}`);
+        }
+      } catch (e) {
+        alert("Ошибка при отправке сообщения");
+      }
+    }
+
+    async function toggleUserPremium(targetTgId) {
+      haptic();
+      await fetch('/api/admin/toggle-premium', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ admin_id: tgUser.id, target_tg_id: targetTgId })
+      });
+      fetchAdminStats();
+    }
+
+    async function toggleUserBan(targetTgId) {
+      haptic();
+      await fetch('/api/admin/toggle-ban', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ admin_id: tgUser.id, target_tg_id: targetTgId })
+      });
+      fetchAdminStats();
     }
 
     async function sendBroadcast() {
