@@ -1,7 +1,18 @@
-from sqlalchemy import Column, Integer, BigInteger, String, Float, ForeignKey, DateTime, Boolean
+from sqlalchemy import Column, Integer, BigInteger, String, Float, ForeignKey, DateTime, Boolean, Date
 from sqlalchemy.orm import relationship
-from datetime import datetime
+from datetime import datetime, timedelta
 from database import Base
+
+class Family(Base):
+    __tablename__ = "families"
+
+    id = Column(Integer, primary_key=True, index=True)
+    code = Column(String, unique=True, index=True)
+    name = Column(String, default="Семейный бюджет")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    users = relationship("User", back_populates="family")
+    goals = relationship("Goal", back_populates="family")
 
 class User(Base):
     __tablename__ = "users"
@@ -13,16 +24,45 @@ class User(Base):
     language = Column(String, default="ru")
     currency = Column(String, default="AMD")
     
-    # Статусы администрирования и доступов
+    # Доступы и статусы
     is_admin = Column(Boolean, default=False)
     is_blocked = Column(Boolean, default=False)
     is_premium = Column(Boolean, default=False)
     bot_active = Column(Boolean, default=True)
     
+    # 3-дневный триал и премиум
+    trial_until = Column(DateTime, default=lambda: datetime.utcnow() + timedelta(days=3))
+    premium_until = Column(DateTime, nullable=True)
+
+    # Стрики (Серия дней ведения)
+    streak_count = Column(Integer, default=1)
+    last_streak_date = Column(Date, nullable=True)
+
+    # Связь с семьей
+    family_id = Column(Integer, ForeignKey("families.id"), nullable=True)
+
     created_at = Column(DateTime, default=datetime.utcnow)
     last_active_at = Column(DateTime, default=datetime.utcnow)
 
     records = relationship("Record", back_populates="user")
+    family = relationship("Family", back_populates="users")
+    goals = relationship("Goal", back_populates="user")
+
+class Goal(Base):
+    __tablename__ = "goals"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    family_id = Column(Integer, ForeignKey("families.id"), nullable=True)
+    title = Column(String)
+    target_amount = Column(Float, default=0.0)
+    current_amount = Column(Float, default=0.0)
+    currency = Column(String, default="AMD")
+    icon = Column(String, default="🎯")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", back_populates="goals")
+    family = relationship("Family", back_populates="goals")
 
 class Record(Base):
     __tablename__ = "records"
@@ -37,11 +77,11 @@ class Record(Base):
     currency = Column(String, default="AMD")
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    # --- ПОЛЯ ДЛЯ ПЛАНЕРА И НАПОМИНАНИЙ ---
+    # Напоминания и дедлайны
     status = Column(String, default="pending")         # 'pending' или 'completed'
-    due_date = Column(DateTime, nullable=True)         # Дата и время дедлайна / напоминания
-    is_recurring = Column(Boolean, default=False)      # Флаг повторяющегося платежа/задачи
+    due_date = Column(DateTime, nullable=True)         # Дата и время дедлайна
+    is_recurring = Column(Boolean, default=False)      # Повторяющийся платеж
     recurrence_rule = Column(String, nullable=True)    # 'monthly', 'weekly', 'daily'
-    is_reminded = Column(Boolean, default=False)       # Было ли отправлено уведомление
+    is_reminded = Column(Boolean, default=False)       # Статус отправки напоминания
 
     user = relationship("User", back_populates="records")
