@@ -378,32 +378,42 @@ def parse_and_save(
     update_streak(user, db)
 
     base_currency = user.currency or "AMD"
-    category = category_override or "task"
-    sub_category = sub_category_override or "general"
-    rec_type = type_override or "expense"
-    amount = 0.0
     text_lower = text.lower()
 
-    normalized_text = re.sub(r'(\d+)[\.,\s](\d{3})\b', r'\1\2', text_lower)
+    # 1. СНАЧАЛА ПРОВЕРЯЕМ НАПОМИНАНИЕ ПО ВРЕМЕНИ
+    remind_at_time = parse_reminder_time(text)
+
+    # 2. ОЧИЩАЕМ ТЕКСТ ОТ ВРЕМЕННЫХ МАРКЕРОВ, ЧТОБЫ ЦИФРЫ ВРЕМЕНИ НЕ СЧИТАЛИСЬ ДЕНЬГАМИ
+    clean_text = re.sub(r'через\s+\d+\s+(минут|минуту|минуты|мин|часов|часа|час|ч)\b', '', text_lower)
+    clean_text = re.sub(r'\b([0-1]?[0-9]|2[0-3]):([0-5][0-9])\b', '', clean_text)
+
+    # 3. ПАРСИМ СУММУ ДЕНЕГ ИЗ ОЧИЩЕННОГО ТЕКСТА
+    amount = 0.0
+    normalized_text = re.sub(r'(\d+)[\.,\s](\d{3})\b', r'\1\2', clean_text)
     numbers = re.findall(r'\d+(?:\.\d+)?', normalized_text)
     
     if numbers:
         amount = float(numbers[0])
-        if any(k in text_lower for k in ["млн", "миллион", "միլիոն"]): amount *= 1000000
-        elif any(k in text_lower for k in ["тыс", "հազար", "k"]): amount *= 1000
+        if any(k in clean_text for k in ["млн", "миллион", "միլիոն"]): amount *= 1000000
+        elif any(k in clean_text for k in ["тыс", "հազար", "k"]): amount *= 1000
+
+    # 4. ОПРЕДЕЛЯЕМ КАТЕГОРИЮ
+    category = category_override or "task"
+    sub_category = sub_category_override or "general"
+    rec_type = type_override or "expense"
 
     if not category_override and not type_override:
         income_triggers = ["зарплат", "получк", "аванс", "преми", "доход", "получил", "перевод", "ստացա", "եկամուտ", "salary"]
         expense_triggers = ["руб", "$", "драм", "֏", "купил", "потратил", "кофе", "заправк", "бензин", "ремонт", "еда", "такси", "ծախս", "սուրճ"]
 
-        if any(k in text_lower for k in income_triggers):
+        if any(k in clean_text for k in income_triggers):
             category = "finance"
             rec_type = "income"
-        elif amount > 0 or any(k in text_lower for k in expense_triggers):
-            category = "finance"
-            rec_type = "expense"
-
-    remind_at_time = parse_reminder_time(text) if category == "task" else None
+        elif amount > 0 or any(k in clean_text for k in expense_triggers):
+            # Если есть явное время напоминания, это задача, а не финансовый расход
+            if not remind_at_time:
+                category = "finance"
+                rec_type = "expense"
 
     record = models.Record(
         user_id=user.id,
