@@ -15,7 +15,7 @@ import httpx
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
-from sqlalchemy import text
+from sqlalchemy import text, or_
 from sqlalchemy.orm import Session
 
 import speech_recognition as sr
@@ -65,6 +65,7 @@ def run_db_migrations():
             conn.execute(text("ALTER TABLE records ADD COLUMN IF NOT EXISTS sub_category VARCHAR DEFAULT 'general';"))
             conn.execute(text("ALTER TABLE records ADD COLUMN IF NOT EXISTS status VARCHAR DEFAULT 'pending';"))
             conn.execute(text("ALTER TABLE records ADD COLUMN IF NOT EXISTS due_date TIMESTAMP;"))
+            conn.execute(text("ALTER TABLE records ADD COLUMN IF NOT EXISTS remind_at TIMESTAMP;"))
             conn.execute(text("ALTER TABLE records ADD COLUMN IF NOT EXISTS is_recurring BOOLEAN DEFAULT FALSE;"))
             conn.execute(text("ALTER TABLE records ADD COLUMN IF NOT EXISTS recurrence_rule VARCHAR;"))
             conn.execute(text("ALTER TABLE records ADD COLUMN IF NOT EXISTS is_reminded BOOLEAN DEFAULT FALSE;"))
@@ -78,7 +79,37 @@ def run_db_migrations():
     Base.metadata.create_all(bind=engine)
 
 
-# --- ПРОВЕРКИ СТАТУСОВ ПОДПИСКИ ---
+# --- ПАРСЕР ВРЕМЕНИ НАПОМИНАНИЙ ---
+def parse_reminder_time(text_val: str) -> Optional[datetime]:
+    text_lower = text_val.lower()
+    now = datetime.utcnow()
+    
+    # Шаблон точного времени (например: 15:30, 9:00)
+    time_match = re.search(r'\b([0-1]?[0-9]|2[0-3]):([0-5][0-9])\b', text_lower)
+    if time_match:
+        hours = int(time_match.group(1))
+        minutes = int(time_match.group(2))
+        target_time = now.replace(hour=hours, minute=minutes, second=0, microsecond=0)
+        if "завтра" in text_lower:
+            target_time += timedelta(days=1)
+        elif target_time < now:
+            target_time += timedelta(days=1)
+        return target_time
+
+    # Шаблон относительного времени (например: "через 20 минут", "через 2 часа")
+    rel_match = re.search(r'через\s+(\d+)\s+(минут|мин|часов|час|ч)', text_lower)
+    if rel_match:
+        val = int(rel_match.group(1))
+        unit = rel_match.group(2)
+        if "мин" in unit:
+            return now + timedelta(minutes=val)
+        elif "час" in unit or unit == "ч":
+            return now + timedelta(hours=val)
+
+    return None
+
+
+# --- ПРО ВЕРКИ СТАТУСОВ ПОДПИСКИ ---
 def get_user_sub_info(user: models.User):
     now = datetime.utcnow()
     if user.is_admin:
@@ -114,13 +145,16 @@ scheduler = AsyncIOScheduler()
 async def check_reminders_and_deadlines():
     with SessionLocal() as db:
         try:
-            yerevan_tz = timezone(timedelta(hours=4))
-            now = datetime.now(yerevan_tz).replace(tzinfo=None)
+            now = datetime.utcnow()
 
+            # Проверяем записи по due_date и по remind_at
             pending_records = db.query(models.Record).filter(
-                models.Record.due_date <= now,
                 models.Record.is_reminded == False,
-                models.Record.status == "pending"
+                models.Record.status == "pending",
+                or_(
+                    models.Record.due_date <= now,
+                    models.Record.remind_at <= now
+                )
             ).all()
 
             for rec in pending_records:
@@ -134,7 +168,8 @@ async def check_reminders_and_deadlines():
                         await bot.send_message(user.telegram_id, msg, parse_mode="Markdown")
                         rec.is_reminded = True
                         if rec.is_recurring and rec.recurrence_rule == "monthly":
-                            rec.due_date = rec.due_date + timedelta(days=30)
+                            if rec.due_date: rec.due_date += timedelta(days=30)
+                            if rec.remind_at: rec.remind_at += timedelta(days=30)
                             rec.is_reminded = False
                         db.commit()
                     except Exception as e:
@@ -368,6 +403,8 @@ def parse_and_save(
             category = "finance"
             rec_type = "expense"
 
+    remind_at_time = parse_reminder_time(text) if category == "task" else None
+
     record = models.Record(
         user_id=user.id,
         category=category,
@@ -377,6 +414,7 @@ def parse_and_save(
         amount=round(amount, 2),
         currency=base_currency,
         due_date=due_date_override,
+        remind_at=remind_at_time,
         is_recurring=is_recurring
     )
     db.add(record)
@@ -607,7 +645,7 @@ async def process_successful_payment(message: Message):
     await message.answer(f"🎉 **Оплата зачислена!** Подписка Royal Gold продлена на {months} мес. Спасибо!")
 
 
-# --- АДМИНСКИЕ ЭНДПОИНТЫ С ПОДРОБНОЙ СТАТИСТИКОЙ ---
+# --- АДМИНСКИЕ ЭНДПОИНТЫ С ПОДРОБНОЙ СТАТИСТИКОЙ И ФИЛЬТРАМИ ---
 
 @app.get("/api/admin/stats/{admin_id}")
 def get_admin_stats(admin_id: int, db: Session = Depends(get_db)):
@@ -621,9 +659,18 @@ def get_admin_stats(admin_id: int, db: Session = Depends(get_db)):
     }
 
 @app.get("/api/admin/users/{admin_id}")
-def get_admin_users(admin_id: int, db: Session = Depends(get_db)):
+def get_admin_users(admin_id: int, filter_type: str = "all", db: Session = Depends(get_db)):
     if admin_id != ADMIN_TELEGRAM_ID: raise HTTPException(status_code=403, detail="Forbidden")
-    users = db.query(models.User).order_by(models.User.id.desc()).all()
+    query = db.query(models.User)
+    
+    if filter_type == "premium":
+        query = query.filter(models.User.is_premium == True)
+    elif filter_type == "blocked":
+        query = query.filter(models.User.is_blocked == True)
+    elif filter_type == "bot_blocked":
+        query = query.filter(models.User.bot_active == False)
+
+    users = query.order_by(models.User.id.desc()).all()
     res = []
     for u in users:
         rec_count = db.query(models.Record).filter(models.Record.user_id == u.id).count()
@@ -639,6 +686,13 @@ def get_admin_users(admin_id: int, db: Session = Depends(get_db)):
             "records_count": rec_count
         })
     return res
+
+@app.get("/api/admin/user-records/{admin_id}/{target_tg_id}")
+def get_admin_user_records(admin_id: int, target_tg_id: int, db: Session = Depends(get_db)):
+    if admin_id != ADMIN_TELEGRAM_ID: raise HTTPException(status_code=403, detail="Forbidden")
+    user = db.query(models.User).filter(models.User.telegram_id == target_tg_id).first()
+    if not user: return []
+    return db.query(models.Record).filter(models.Record.user_id == user.id).order_by(models.Record.id.desc()).all()
 
 @app.post("/api/admin/toggle-premium")
 def admin_toggle_premium(data: AdminUserAction, db: Session = Depends(get_db)):
@@ -699,4 +753,16 @@ async def handle_text_message(message: types.Message):
     db = next(get_db())
     rec = parse_and_save(message.from_user.id, message.text, db, first_name=message.from_user.first_name, username=message.from_user.username)
     emoji = "📈" if rec.type == "income" else ("💸" if rec.category == "finance" else "✅")
-    await message.answer(f"{emoji} Записано: **{rec.title}**\nСумма: **{rec.amount:.2f} {rec.currency}**", parse_mode="Markdown")
+    rem_txt = f"\n⏰ Напоминание: **{rec.remind_at.strftime('%H:%M')}**" if rec.remind_at else ""
+    await message.answer(f"{emoji} Записано: **{rec.title}**{rem_txt}\nСумма: **{rec.amount:.2f} {rec.currency}**", parse_mode="Markdown")
+
+@dp.message(F.voice)
+async def handle_voice_message(message: types.Message):
+    db = next(get_db())
+    file_info = await bot.get_file(message.voice.file_id)
+    file_bytes = await bot.download_file(file_info.file_path)
+    rec_text = recognize_speech_free(file_bytes.read()) or "Голосовая запись"
+    rec = parse_and_save(message.from_user.id, rec_text, db, first_name=message.from_user.first_name, username=message.from_user.username)
+    emoji = "📈" if rec.type == "income" else ("💸" if rec.category == "finance" else "✅")
+    rem_txt = f"\n⏰ Напоминание: **{rec.remind_at.strftime('%H:%M')}**" if rec.remind_at else ""
+    await message.answer(f"🎙 {emoji} **Распознано:** «{rec.title}»{rem_txt}\nСумма: **{rec.amount:.2f} {rec.currency}**", parse_mode="Markdown")
