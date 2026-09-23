@@ -80,6 +80,7 @@ class Record(Base):
     # Напоминания и дедлайны
     status = Column(String, default="pending")         # 'pending' или 'completed'
     due_date = Column(DateTime, nullable=True)         # Дата и время дедлайна
+    remind_at = Column(DateTime, nullable=True)        # Точное время отправки уведомления
     is_recurring = Column(Boolean, default=False)      # Повторяющийся платеж
     recurrence_rule = Column(String, nullable=True)    # 'monthly', 'weekly', 'daily'
     is_reminded = Column(Boolean, default=False)       # Статус отправки напоминания
