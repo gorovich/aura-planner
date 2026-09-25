@@ -3,10 +3,11 @@ import time
 import threading
 import requests
 from datetime import datetime
+from contextlib import asynccontextmanager
 from pybit.unified_trading import WebSocket
 from fastapi import FastAPI
 import uvicorn
-from contextlib import asynccontextmanager
+
 # ==================== НАСТРОЙКИ ТЕЛЕГРАМ ====================
 TELEGRAM_BOT_TOKEN = "8528320744:AAHHUFF1NlunIRfQNfPYIgt71zmQbTrb9cs"
 TELEGRAM_CHAT_ID = "1190982420"
@@ -16,15 +17,22 @@ CATEGORY = "linear"            # Фьючерсы USDT (Mainnet)
 TOP_COINS_LIMIT = 50           # Отслеживаем top-50 пар
 
 # --- ДЕПОЗИТ И КРЕДИТНОЕ ПЛЕЧО ---
-INITIAL_BALANCE = 20.0         # Твой стартовый реальный депозит ($20)
-LEVERAGE = 5                   # Кредитное плечо (5x, 10x, 20x и т.д.)
+INITIAL_BALANCE = 31.12         # Твой стартовый реальный депозит ($20)
+LEVERAGE = 5                   # Кредитное плечо (5x)
 MAX_DRAWDOWN_PCT = 10.0        # Остановка бота при потере -10% от депо ($2.00)
 
 EAT_THRESHOLD_PCT = 40.0       # Закрыть, если стенку разъели/сняли на 40%
 TAKE_PROFIT_PCT = 0.4          # Тейк-профит (+0.4%)
 STOP_LOSS_PCT = 0.25           # Стоп-лосс (-0.25%)
-COOLDOWN_SEC = 30              # Пауза 30 секунд после закрытия сделки
+COOLDOWN_SEC = 30              # Стандартная пауза после сделки (30 сек)
 TAKER_FEE_PCT = 0.055 * 2      # Комиссия биржи (~0.11% round-trip)
+
+# --- БОЕВЫЕ СКАЛЬПЕРСКИЕ ФИЛЬТРЫ ---
+PROXIMITY_PCT = 0.08           # Дистанция до стенки <= 0.08%
+MIN_WALL_LIFETIME_SEC = 3.0    # Стенка должна простоять в стакане >= 3 сек
+MAX_SPREAD_PCT = 0.04          # Максимальный спред <= 0.04%
+TILT_COOLDOWN_SEC = 900        # Пауза 15 минут при 2 стопах за 10 мин
+
 LOG_INTERVAL_SEC = 5           
 LOG_FILE_NAME = "trade_log.txt" 
 # =====================================================================
@@ -48,7 +56,7 @@ def write_file_log(line_text):
 
 class LeveragePaperBot:
     def __init__(self):
-        print("⚙️ Инициализация бота с настройкой плеча (Leverage)...")
+        print("⚙️ Инициализация прокачанного сканера...")
         
         self.targets = self._get_top_mainnet_symbols()
         
@@ -67,6 +75,11 @@ class LeveragePaperBot:
         self.max_seen_wall = {"symbol": "", "usd": 0}
         self.is_stopped = False
 
+        # Трекеры фильтров
+        self.wall_tracker = {}         # {(symbol, side, price): first_seen_time}
+        self.recent_sl_timestamps = [] # История стопов за 10 мин
+        self.tilt_until = 0            # Время окончания Tilt-паузы
+
     def _get_top_mainnet_symbols(self):
         url = "https://api.bybit.com/v5/market/tickers?category=linear"
         try:
@@ -83,9 +96,9 @@ class LeveragePaperBot:
                 
                 wall_threshold = max(80_000, round(turnover * 0.001, -3))
                 if symbol == "BTCUSDT":
-                    wall_threshold = 350_000
+                    wall_threshold = 850_000  # Фильтр BTC от $850k
                 elif symbol == "ETHUSDT":
-                    wall_threshold = 200_000
+                    wall_threshold = 500_000  # Фильтр ETH от $500k
 
                 targets[symbol] = wall_threshold
 
@@ -96,10 +109,12 @@ class LeveragePaperBot:
             return targets
         except Exception as e:
             print(f"❌ Ошибка получения тикеров: {e}")
-            return {"BTCUSDT": 350000, "ETHUSDT": 200000, "SOLUSDT": 100000}
+            return {"BTCUSDT": 850000, "ETHUSDT": 500000, "SOLUSDT": 150000}
 
     def on_orderbook_update(self, message):
-        if self.is_stopped:
+        now = time.time()
+
+        if self.is_stopped or now < self.tilt_until:
             return
 
         symbol = message.get("topic", "").split(".")[-1]
@@ -115,6 +130,14 @@ class LeveragePaperBot:
         if not bids or not asks:
             return
 
+        best_bid = max(bids.keys())
+        best_ask = min(asks.keys())
+
+        # 1. ФИЛЬТР СПРЕДА
+        spread_pct = ((best_ask - best_bid) / best_bid) * 100
+        if spread_pct > MAX_SPREAD_PCT:
+            return
+
         # Пульс в консоль
         max_bid = max([p * s for p, s in bids.items()], default=0)
         max_ask = max([p * s for p, s in asks.items()], default=0)
@@ -122,33 +145,51 @@ class LeveragePaperBot:
         if current_max > self.max_seen_wall["usd"]:
             self.max_seen_wall = {"symbol": symbol, "usd": current_max}
 
-        if time.time() - self.last_log_time > LOG_INTERVAL_SEC:
+        if now - self.last_log_time > LOG_INTERVAL_SEC:
             status_str = f"В ПОЗИЦИИ [{self.active_symbol}]" if self.in_position else f"ПОИСК СТЕНОК (Депо: ${self.current_balance:.2f})"
             print(f"📡 [PULSE] Сканирование... - Макс. стенка: {self.max_seen_wall['symbol']} (${self.max_seen_wall['usd']:,.0f}) - {status_str}")
-            self.last_log_time = time.time()
+            self.last_log_time = now
 
-        if time.time() - self.last_close_time < COOLDOWN_SEC:
+        if now - self.last_close_time < COOLDOWN_SEC:
             return
 
-        # 1. ПОИСК ТОЧКИ ВХОДА
+        # 2. ПОИСК ТОЧКИ ВХОДА С PROXIMITY И ANTI-SPOOFING
         if not self.in_position:
+            # СНИЗУ: Ищем плотность в Bids для ПОКУПКИ (Buy)
             for price, size in bids.items():
                 if price * size >= wall_threshold_usd:
-                    self.open_paper_position(symbol, "Buy", price, size)
-                    return
+                    # Проверяем дистанцию цены до стенки
+                    dist_pct = ((best_bid - price) / best_bid) * 100
+                    if dist_pct <= PROXIMITY_PCT:
+                        key = (symbol, "Buy", price)
+                        if key not in self.wall_tracker:
+                            self.wall_tracker[key] = now
+                        elif now - self.wall_tracker[key] >= MIN_WALL_LIFETIME_SEC:
+                            self.open_paper_position(symbol, "Buy", price, size)
+                            self.wall_tracker.clear()
+                            return
 
+            # СВЕРХУ: Ищем плотность в Asks для ПРОДАЖИ (Sell)
             for price, size in asks.items():
                 if price * size >= wall_threshold_usd:
-                    self.open_paper_position(symbol, "Sell", price, size)
-                    return
+                    # Проверяем дистанцию цены до стенки
+                    dist_pct = ((price - best_ask) / best_ask) * 100
+                    if dist_pct <= PROXIMITY_PCT:
+                        key = (symbol, "Sell", price)
+                        if key not in self.wall_tracker:
+                            self.wall_tracker[key] = now
+                        elif now - self.wall_tracker[key] >= MIN_WALL_LIFETIME_SEC:
+                            self.open_paper_position(symbol, "Sell", price, size)
+                            self.wall_tracker.clear()
+                            return
 
-        # 2. КОНТРОЛЬ СТЕНКИ И TP/SL
+        # 3. КОНТРОЛЬ СТЕНКИ И TP/SL В ПОЗИЦИИ
         elif self.in_position and self.active_symbol == symbol:
             current_wall_map = bids if self.position_side == "Buy" else asks
             current_wall_size = current_wall_map.get(self.wall_price, 0.0)
 
             eaten_pct = ((self.initial_wall_size - current_wall_size) / self.initial_wall_size) * 100
-            current_price = list(bids.keys())[0] if self.position_side == "Sell" else list(asks.keys())[0]
+            current_price = best_bid if self.position_side == "Sell" else best_ask
 
             if self.position_side == "Buy":
                 if current_price >= self.tp_price:
@@ -187,12 +228,14 @@ class LeveragePaperBot:
             f"💵 Цена: `{price}` USDT\n"
             f"📦 Объём стенки: `${price * wall_size:,.0f}`\n"
             f"🚀 *Сделка {side} ({LEVERAGE}x плечо)*\n"
-            f"💼 Объём позиции: `${position_usd:.2f}` (Маржа: `${self.current_balance:.2f}`)"
+            f"💼 Объём позиции: `${position_usd:.2f}` (Маржа: `${self.current_balance:.2f}`)\n"
+            f"🛡️ *Фильтры прошёл:* Стенка выстояла >3с | Дистанция <{PROXIMITY_PCT}%"
         )
         print(f"\n🔥 [LOG] {side} {symbol} по {price}! Стенка: ${price * wall_size:,.0f} - Плечо: {LEVERAGE}x")
         send_tg_message(msg)
 
     def close_paper_position(self, reason, close_price):
+        now = time.time()
         if self.position_side == "Buy":
             gross_pnl_pct = ((close_price - self.entry_price) / self.entry_price) * 100
         else:
@@ -229,8 +272,25 @@ class LeveragePaperBot:
         self.in_position = False
         self.active_symbol = None
         self.position_side = None
-        self.last_close_time = time.time()
+        self.last_close_time = now
 
+        # Проверка на Tilt Guard (Защита от серии стопов)
+        if net_pnl_pct < 0:
+            self.recent_sl_timestamps = [t for t in self.recent_sl_timestamps if now - t <= 600]
+            self.recent_sl_timestamps.append(now)
+
+            if len(self.recent_sl_timestamps) >= 2:
+                self.tilt_until = now + TILT_COOLDOWN_SEC
+                self.recent_sl_timestamps = []
+                tilt_msg = (
+                    f"🛡️ *TILT GUARD АКТИВИРОВАН!*\n\n"
+                    f"⚠️ Получено 2 убыточных сделки за 10 минут.\n"
+                    f"⏳ Бот берет паузу на 15 минут для переформирования рынка."
+                )
+                print(f"\n🛡️ [TILT GUARD] Пауза 15 минут из-за 2 стопов подряд.")
+                send_tg_message(tilt_msg)
+
+        # Stop-Out проверка
         if total_loss >= self.max_allowed_loss:
             self.is_stopped = True
             stop_msg = (
@@ -258,21 +318,14 @@ def start_bot_thread():
         time.sleep(1)
 
 # ==================== FASTAPI ВЕБ-СЕРВЕР ДЛЯ RENDER ====================
-app = FastAPI()
-
-# ==================== АВТОЗАПУСК ПРИ СТАРТЕ СЕРВЕРА ====================
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Этот код выполняется АВТОМАТИЧЕСКИ при старте Render
-    print("🚀 [SYSTEM] Сервер поднялся. Запускаем фоновый сканер Bybit...")
+    print("🚀 [SYSTEM] Сервер поднялся. Запускаем умный фоновый сканер Bybit...")
     bot_thread = threading.Thread(target=start_bot_thread, daemon=True)
     bot_thread.start()
     
-    # Отправляем уведому в ТГ, что бот успешно поднялся на сервере
-    send_tg_message("🤖 *Бот успешно запущен на Render и начинает сканирование!*")
-    
-    yield  # Сервер работает
-    
+    send_tg_message("🤖 *Умный сканер с защитой от спуфинга успешно запущен на Render!*")
+    yield
     print("🛑 [SYSTEM] Сервер останавливается...")
 
 app = FastAPI(lifespan=lifespan)
