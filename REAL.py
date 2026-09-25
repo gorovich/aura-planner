@@ -1,7 +1,11 @@
+import os
 import time
+import threading
 import requests
 from datetime import datetime
 from pybit.unified_trading import WebSocket
+from fastapi import FastAPI
+import uvicorn
 
 # ==================== НАСТРОЙКИ ТЕЛЕГРАМ ====================
 TELEGRAM_BOT_TOKEN = "8528320744:AAHHUFF1NlunIRfQNfPYIgt71zmQbTrb9cs"
@@ -239,9 +243,9 @@ class LeveragePaperBot:
             write_file_log(f"🚨 [STOP-OUT] Бот остановлен при балансе ${self.current_balance:.2f}")
             send_tg_message(stop_msg)
 
-if __name__ == "__main__":
+# ==================== ЗАПУСК БОТА В ФОНЕ ====================
+def start_bot_thread():
     bot = LeveragePaperBot()
-
     ws = WebSocket(testnet=False, channel_type=CATEGORY)
     for symbol in bot.targets.keys():
         ws.orderbook_stream(depth=50, symbol=symbol, callback=bot.on_orderbook_update)
@@ -252,3 +256,19 @@ if __name__ == "__main__":
             print("🛑 Бот остановлен по лимиту убытка.")
             break
         time.sleep(1)
+
+# ==================== FASTAPI ВЕБ-СЕРВЕР ДЛЯ RENDER ====================
+app = FastAPI()
+
+@app.get("/")
+def health_check():
+    return {"status": "ok", "bot": "running"}
+
+if __name__ == "__main__":
+    # 1. Запускаем бота в фоновом потоке
+    bot_thread = threading.Thread(target=start_bot_thread, daemon=True)
+    bot_thread.start()
+
+    # 2. Запускаем FastAPI на порту, который требует Render
+    port = int(os.environ.get("PORT", 10000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
