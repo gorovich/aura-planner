@@ -31,7 +31,7 @@ TAKER_FEE_PCT = 0.055 * 2      # Комиссия биржи (~0.11% round-trip)
 PROXIMITY_PCT = 0.08           # Дистанция до стенки <= 0.08%
 MIN_WALL_LIFETIME_SEC = 3.0    # Стенка должна простоять в стакане >= 3 сек
 MAX_SPREAD_PCT = 0.04          # Максимальный спред <= 0.04%
-TILT_COOLDOWN_SEC = 300        # Пауза 15 минут при 2 стопах за 10 мин
+TILT_COOLDOWN_SEC = 60        # Пауза 15 минут при 2 стопах за 10 мин
 
 LOG_INTERVAL_SEC = 5           
 LOG_FILE_NAME = "trade_log.txt" 
