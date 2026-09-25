@@ -6,7 +6,7 @@ from datetime import datetime
 from pybit.unified_trading import WebSocket
 from fastapi import FastAPI
 import uvicorn
-
+from contextlib import asynccontextmanager
 # ==================== НАСТРОЙКИ ТЕЛЕГРАМ ====================
 TELEGRAM_BOT_TOKEN = "8528320744:AAHHUFF1NlunIRfQNfPYIgt71zmQbTrb9cs"
 TELEGRAM_CHAT_ID = "1190982420"
@@ -260,15 +260,23 @@ def start_bot_thread():
 # ==================== FASTAPI ВЕБ-СЕРВЕР ДЛЯ RENDER ====================
 app = FastAPI()
 
-@app.get("/")
-def health_check():
-    return {"status": "ok", "bot": "running"}
-
-if __name__ == "__main__":
-    # 1. Запускаем бота в фоновом потоке
+# ==================== АВТОЗАПУСК ПРИ СТАРТЕ СЕРВЕРА ====================
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Этот код выполняется АВТОМАТИЧЕСКИ при старте Render
+    print("🚀 [SYSTEM] Сервер поднялся. Запускаем фоновый сканер Bybit...")
     bot_thread = threading.Thread(target=start_bot_thread, daemon=True)
     bot_thread.start()
+    
+    # Отправляем уведому в ТГ, что бот успешно поднялся на сервере
+    send_tg_message("🤖 *Бот успешно запущен на Render и начинает сканирование!*")
+    
+    yield  # Сервер работает
+    
+    print("🛑 [SYSTEM] Сервер останавливается...")
 
-    # 2. Запускаем FastAPI на порту, который требует Render
-    port = int(os.environ.get("PORT", 10000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+app = FastAPI(lifespan=lifespan)
+
+@app.get("/")
+def health_check():
+    return {"status": "ok", "bot": "working"}
