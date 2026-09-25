@@ -1,14 +1,13 @@
+pybit
+requests
 fastapi>=0.110.0
 uvicorn>=0.28.0
 aiogram>=3.4.1
 sqlalchemy>=2.0.28
-psycopg2-binary>=2.9.9
+psycopg[binary]
 pydantic>=2.4.1
 SpeechRecognition>=3.10.0
 pydub>=0.25.1
 httpx>=0.27.0
 python-multipart
-SpeechRecognition>=3.10.0
-pydub>=0.25.1
 apscheduler
-psycopg[binary]
