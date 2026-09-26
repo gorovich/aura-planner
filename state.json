@@ -1,0 +1,13 @@
+{
+    "current_balance": 19.476770133465187,
+    "session_start_balance": 20.0,
+    "wins_count": 15,
+    "losses_count": 22,
+    "leverage": 5,
+    "top_coins_limit": 50,
+    "user_blacklist": [
+        "ETHUSDT",
+        "BTCUSDT",
+        "DOGEUSDT"
+    ]
+}
