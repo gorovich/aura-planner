@@ -761,5 +761,12 @@ app = FastAPI()
 def health_check():
     return {"status": "ok", "bot": "working"}
 
+# 🚀 АВТОЗАПУСК ФОНОВОГО СКАНЕРА ПРИ СТАРТЕ UVICORN НА RENDER
+@app.on_event("startup")
+def startup_event():
+    print("🚀 [RENDER START] Запуск фонового сканера Bybit...")
+    threading.Thread(target=start_bot_thread, daemon=True).start()
+
 if __name__ == "__main__":
+    # Локальный запуск на ПК
     start_bot_thread()
