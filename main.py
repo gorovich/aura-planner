@@ -21,6 +21,7 @@ DEFAULT_LEVERAGE = 5           # Кредитное плечо (5x)
 MAX_DRAWDOWN_PCT = 10.0        # Остановка при потере -10%
 
 SLIPPAGE_PCT = 0.02            # Учет проскальзывания 0.02%
+MAX_CONSECUTIVE_LOSSES = 5     # 🚨 АВТО-БАН ПОСЛЕ 5 УБЫТКОВ ПОДРЯД
 
 # --- БЫСТРЫЕ ТАЙМ-АУТЫ ---
 POSITION_TIMEOUT_SEC = 45      # Эвакуация через 45 секунд
@@ -104,7 +105,7 @@ def write_file_log(line_text):
 
 class LeveragePaperBot:
     def __init__(self):
-        print("⚡ Инициализация скоростного сканера...")
+        print("⚡ Инициализация скоростного сканера с авто-баном убыточных монет...")
         
         self.lock = threading.Lock()
         
@@ -121,6 +122,7 @@ class LeveragePaperBot:
         self.manual_paused = False
         
         self.user_blacklist = set()
+        self.consecutive_losses = defaultdict(int) # Счетчик убытков подряд по монетам
         self.awaiting_input_action = None
         
         self._load_state()
@@ -221,17 +223,10 @@ class LeveragePaperBot:
         if not self.ws_client:
             return
         self.targets = self._get_top_mainnet_symbols()
-        self.max_seen_wall = {"symbol": "", "usd": 0}  # Сброс старой застрявшей стенки
+        self.max_seen_wall = {"symbol": "", "usd": 0}
         pos_size = self.current_balance * self.leverage
-        print("\n🚀 [RELOAD] Переподключение WebSocket-потоков...")
+        print("\n🚀 [RELOAD] Фоновое обновление параметров тикеров...")
         print(f"💳 Депозит: ${self.current_balance:.2f} - Плечо: {self.leverage}x - TOP-{self.top_coins_limit} - Объём: ${pos_size:.2f}\n")
-        
-        for symbol in self.targets.keys():
-            try:
-                self.ws_client.orderbook_stream(depth=50, symbol=symbol, callback=self.on_orderbook_update)
-                self.ws_client.trade_stream(symbol=symbol, callback=self.on_public_trade_update)
-            except Exception:
-                pass
 
     def on_public_trade_update(self, message):
         symbol = message.get("topic", "").split(".")[-1]
@@ -313,7 +308,9 @@ class LeveragePaperBot:
             return
 
         symbol = message.get("topic", "").split(".")[-1]
-        if symbol not in self.targets:
+        
+        # ⚡ ИГНОРИРУЕМ МИНУТАЛЬНО МОНЕТЫ ИЗ БАН-ЛИСТА (БЕЗ ЗАВИСАНИЙ)
+        if symbol in self.user_blacklist or symbol not in self.targets:
             return
 
         data = message.get("data", {})
@@ -350,7 +347,7 @@ class LeveragePaperBot:
                     update_tg_message(self.active_tg_msg_id, updated_text, reply_markup=self.get_main_menu_keyboard())
                     self.last_tg_update_time = now
 
-                # ⚡ БЫСТРАЯ ЭВАКУАЦИЯ ЧЕРЕЗ 45 СЕКУНД (если есть хотя бы микро-профит)
+                # ⚡ БЫСТРАЯ ЭВАКУАЦИЯ ЧЕРЕЗ 45 СЕКУНД
                 if elapsed_time >= POSITION_TIMEOUT_SEC:
                     if current_pnl_pct >= 0.15:
                         self.close_paper_position("Быстрый сброс в профит (45 сек)", current_price)
@@ -380,10 +377,6 @@ class LeveragePaperBot:
                         self.close_paper_position(reason, current_price)
             return
 
-        # 2. ФИЛЬТР БАН-ЛИСТА
-        if symbol in self.user_blacklist:
-            return
-
         wall_threshold_usd = self.targets[symbol]
 
         spread_pct = ((best_ask - best_bid) / best_bid) * 100
@@ -394,7 +387,6 @@ class LeveragePaperBot:
         max_ask = max([p * s for p, s in asks.items()], default=0)
         current_max = max(max_bid, max_ask)
         
-        # Динамическое обновление стенок без "залипания" на одной монете
         if current_max > self.max_seen_wall["usd"] or self.max_seen_wall["symbol"] in self.user_blacklist:
             self.max_seen_wall = {"symbol": symbol, "usd": current_max}
 
@@ -481,21 +473,24 @@ class LeveragePaperBot:
             net_usd_pnl = (net_pnl_pct / 100) * position_usd
 
             self.current_balance += net_usd_pnl
+            closed_symbol = self.active_symbol
             
             if net_pnl_pct > 0:
                 self.wins_count += 1
                 status_icon = "🟢 ПРОФИТ"
+                # Сбрасываем счетчик убытков подряд при прибыльной сделке
+                self.consecutive_losses[closed_symbol] = 0
             else:
                 self.losses_count += 1
                 status_icon = "🔴 УБЫТОК"
+                # Увеличиваем счетчик убытков по этой монете
+                self.consecutive_losses[closed_symbol] += 1
 
             total_trades = self.wins_count + self.losses_count
             winrate = (self.wins_count / total_trades) * 100 if total_trades > 0 else 0.0
 
             session_pnl_usd = self.current_balance - self.session_start_balance
             session_pnl_pct = (session_pnl_usd / self.session_start_balance) * 100
-
-            closed_symbol = self.active_symbol
 
             self._save_state()
 
@@ -524,6 +519,19 @@ class LeveragePaperBot:
             )
             print(f"✅ [LOG] {file_log_entry}")
             send_tg_message(msg)
+
+            # 🚨 ПРОВЕРКА НА 5 УБЫТКОВ ПОДРЯД И АВТО-БАН МОНЕТЫ
+            if self.consecutive_losses[closed_symbol] >= MAX_CONSECUTIVE_LOSSES:
+                self.user_blacklist.add(closed_symbol)
+                self._save_state()
+                auto_ban_msg = (
+                    f"⛔ *АВТО-БАН МОНЕТЫ* — `{closed_symbol}`\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"⚠️ Монета получила `{MAX_CONSECUTIVE_LOSSES}` убытков подряд!\n"
+                    f"🚫 `{closed_symbol}` автоматически добавлена в ЧС."
+                )
+                print(f"\n⛔ [AUTO-BAN] Монета {closed_symbol} забанена из-за {MAX_CONSECUTIVE_LOSSES} убытков подряд!\n")
+                send_tg_message(auto_ban_msg, reply_markup=self.get_blacklist_keyboard())
 
             self.in_position = False
             self.active_symbol = None
@@ -575,7 +583,6 @@ def process_telegram_updates():
                                 sym += "USDT"
                             bot.user_blacklist.add(sym)
                             bot._save_state()
-                            bot.reload_websocket_streams()
                             bot.awaiting_input_action = None
                             
                             extra_info = " *(доработает текущую сделку и уйдёт в бан)*" if bot.in_position and bot.active_symbol == sym else ""
@@ -589,7 +596,6 @@ def process_telegram_updates():
                             if sym in bot.user_blacklist:
                                 bot.user_blacklist.remove(sym)
                                 bot._save_state()
-                                bot.reload_websocket_streams()
                                 send_tg_message(f"✅ Монета `{sym}` удалена из бан-листа!", reply_markup=bot.get_blacklist_keyboard())
                             else:
                                 send_tg_message(f"⚠️ Монета `{sym}` не найдена в бан-листе.", reply_markup=bot.get_blacklist_keyboard())
@@ -612,7 +618,6 @@ def process_telegram_updates():
                                 sym += "USDT"
                             bot.user_blacklist.add(sym)
                             bot._save_state()
-                            bot.reload_websocket_streams()
                             send_tg_message(f"⛔ Монета `{sym}` добавлена в Черный Список!", reply_markup=bot.get_blacklist_keyboard())
 
                         elif msg_text.startswith("/unban "):
@@ -621,7 +626,6 @@ def process_telegram_updates():
                                 sym += "USDT"
                             bot.user_blacklist.discard(sym)
                             bot._save_state()
-                            bot.reload_websocket_streams()
                             send_tg_message(f"✅ Монета `{sym}` удалена из Черного Списка!", reply_markup=bot.get_blacklist_keyboard())
 
                     if "callback_query" in update:
@@ -684,7 +688,6 @@ def process_telegram_updates():
                         elif data == "set_top_dialog":
                             bot.top_coins_limit = 50 if bot.top_coins_limit == 30 else (10 if bot.top_coins_limit == 50 else 30)
                             bot._save_state()
-                            bot.reload_websocket_streams()
                             send_tg_message(f"🏆 Теперь отслеживаем TOP-`{bot.top_coins_limit}` монет!", reply_markup=bot.get_settings_keyboard())
 
                         elif data == "close_now":
@@ -692,7 +695,7 @@ def process_telegram_updates():
                                 bot.close_paper_position("Ручной сброс с телефона", bot.entry_price)
                                 send_tg_message("🛑 *Позиция экстренно закрыта с телефона!*", reply_markup=bot.get_main_menu_keyboard())
                             else:
-                                send_tg_message("ℹ️ Нет активной позиции.", reply_markup=bot.get_main_menu_keyboard())
+                                send_tg_message("ℹ️️ Нет активной позиции.", reply_markup=bot.get_main_menu_keyboard())
 
                         elif data == "toggle_pause":
                             bot.manual_paused = not bot.manual_paused
@@ -722,7 +725,6 @@ def process_telegram_updates():
 
                         elif data == "reboot_bot":
                             bot.wall_tracker.clear()
-                            bot.reload_websocket_streams()
                             send_tg_message("🔄 *Сканер перезагружен, фильтры и тикеры обновлены!*", reply_markup=bot.get_main_menu_keyboard())
 
         except Exception:
@@ -737,7 +739,6 @@ def start_bot_thread():
 
     threading.Thread(target=process_telegram_updates, daemon=True).start()
 
-    # Включаем автоматический ping/pong интервал
     ws = WebSocket(testnet=False, channel_type=CATEGORY, ping_interval=20, ping_timeout=10)
     bot.ws_client = ws
 
@@ -745,9 +746,9 @@ def start_bot_thread():
         ws.orderbook_stream(depth=50, symbol=symbol, callback=bot.on_orderbook_update)
         ws.trade_stream(symbol=symbol, callback=bot.on_public_trade_update)
 
-    print(f"⚡ Сканер запущен с динамическим логом и авто-восстановлением соединений!\n")
+    print(f"⚡ Сканер запущен с авто-баном проблемных монет (5 убытков подряд)!\n")
     
-    send_tg_message("🚀 *Сканер запущен! Динамический лог и авто-восстановление WebSocket активны.*", reply_markup=bot.get_main_menu_keyboard())
+    send_tg_message("🚀 *Сканер запущен! Система авто-бана монет (5 убытков подряд) активна.*", reply_markup=bot.get_main_menu_keyboard())
 
     while True:
         if bot.is_stopped:
@@ -761,12 +762,10 @@ app = FastAPI()
 def health_check():
     return {"status": "ok", "bot": "working"}
 
-# 🚀 АВТОЗАПУСК ФОНОВОГО СКАНЕРА ПРИ СТАРТЕ UVICORN НА RENDER
 @app.on_event("startup")
 def startup_event():
     print("🚀 [RENDER START] Запуск фонового сканера Bybit...")
     threading.Thread(target=start_bot_thread, daemon=True).start()
 
 if __name__ == "__main__":
-    # Локальный запуск на ПК
     start_bot_thread()
