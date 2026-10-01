@@ -64,6 +64,10 @@ def send_tg_message(text, reply_markup=None):
         print(f"❌ [LOG] Ошибка отправки в TG: {e}")
     return None
 
+def send_tg_message_async(text, reply_markup=None):
+    """Безопасная асинхронная отправка сообщений без блокировки потока сканера"""
+    threading.Thread(target=send_tg_message, args=(text, reply_markup), daemon=True).start()
+
 def update_tg_message(message_id, text, reply_markup=None):
     if not message_id:
         return
@@ -105,7 +109,7 @@ def write_file_log(line_text):
 
 class LeveragePaperBot:
     def __init__(self):
-        print("⚡ Инициализация скоростного сканера с авто-баном убыточных монет...")
+        print("⚡ Инициализация скоростного сканера с безопасным бан-листом...")
         
         self.lock = threading.Lock()
         
@@ -122,7 +126,7 @@ class LeveragePaperBot:
         self.manual_paused = False
         
         self.user_blacklist = set()
-        self.consecutive_losses = defaultdict(int) # Счетчик убытков подряд по монетам
+        self.consecutive_losses = defaultdict(int)
         self.awaiting_input_action = None
         
         self._load_state()
@@ -219,18 +223,9 @@ class LeveragePaperBot:
             print(f"❌ Ошибка получения тикеров: {e}")
             return {"SOLUSDT": 250000, "XRPUSDT": 100000, "DOGEUSDT": 100000}
 
-    def reload_websocket_streams(self):
-        if not self.ws_client:
-            return
-        self.targets = self._get_top_mainnet_symbols()
-        self.max_seen_wall = {"symbol": "", "usd": 0}
-        pos_size = self.current_balance * self.leverage
-        print("\n🚀 [RELOAD] Фоновое обновление параметров тикеров...")
-        print(f"💳 Депозит: ${self.current_balance:.2f} - Плечо: {self.leverage}x - TOP-{self.top_coins_limit} - Объём: ${pos_size:.2f}\n")
-
     def on_public_trade_update(self, message):
         symbol = message.get("topic", "").split(".")[-1]
-        if symbol not in self.targets:
+        if symbol in self.user_blacklist or symbol not in self.targets:
             return
         now = time.time()
         trades = message.get("data", [])
@@ -309,7 +304,7 @@ class LeveragePaperBot:
 
         symbol = message.get("topic", "").split(".")[-1]
         
-        # ⚡ ИГНОРИРУЕМ МИНУТАЛЬНО МОНЕТЫ ИЗ БАН-ЛИСТА (БЕЗ ЗАВИСАНИЙ)
+        # ⚡ ИГНОРИРУЕМ МИНУТАЛЬНО МОНЕТЫ ИЗ БАН-ЛИСТА (МНОГОПАТОЧНО И БЕЗ ЗАВИСАНИЙ)
         if symbol in self.user_blacklist or symbol not in self.targets:
             return
 
@@ -451,6 +446,14 @@ class LeveragePaperBot:
         msg_text = self._generate_open_card_text(0)
         print(f"\n⚡ [LOG] {side} {symbol} по {self.entry_price}! Стенка: ${price * wall_size:,.0f}")
         
+        # Асинхронно создаем сообщение карточки
+        threading.Thread(
+            target=self._async_send_open_card, 
+            args=(msg_text,), 
+            daemon=True
+        ).start()
+
+    def _async_send_open_card(self, msg_text):
         self.active_tg_msg_id = send_tg_message(msg_text, reply_markup=self.get_main_menu_keyboard())
 
     def close_paper_position(self, reason, close_price):
@@ -478,12 +481,10 @@ class LeveragePaperBot:
             if net_pnl_pct > 0:
                 self.wins_count += 1
                 status_icon = "🟢 ПРОФИТ"
-                # Сбрасываем счетчик убытков подряд при прибыльной сделке
                 self.consecutive_losses[closed_symbol] = 0
             else:
                 self.losses_count += 1
                 status_icon = "🔴 УБЫТОК"
-                # Увеличиваем счетчик убытков по этой монете
                 self.consecutive_losses[closed_symbol] += 1
 
             total_trades = self.wins_count + self.losses_count
@@ -518,9 +519,11 @@ class LeveragePaperBot:
                 f"━━━━━━━━━━━━━━━━━━━━━━"
             )
             print(f"✅ [LOG] {file_log_entry}")
-            send_tg_message(msg)
+            
+            # Асинхронная отправка отчета
+            send_tg_message_async(msg)
 
-            # 🚨 ПРОВЕРКА НА 5 УБЫТКОВ ПОДРЯД И АВТО-БАН МОНЕТЫ
+            # 🚨 ПРОВЕРКА НА 5 УБЫТКОВ ПОДРЯД (АБСОЛЮТНО АСИНХРОННАЯ И БЕЗОПАСНАЯ)
             if self.consecutive_losses[closed_symbol] >= MAX_CONSECUTIVE_LOSSES:
                 self.user_blacklist.add(closed_symbol)
                 self._save_state()
@@ -531,7 +534,7 @@ class LeveragePaperBot:
                     f"🚫 `{closed_symbol}` автоматически добавлена в ЧС."
                 )
                 print(f"\n⛔ [AUTO-BAN] Монета {closed_symbol} забанена из-за {MAX_CONSECUTIVE_LOSSES} убытков подряд!\n")
-                send_tg_message(auto_ban_msg, reply_markup=self.get_blacklist_keyboard())
+                send_tg_message_async(auto_ban_msg, reply_markup=self.get_blacklist_keyboard())
 
             self.in_position = False
             self.active_symbol = None
@@ -549,13 +552,13 @@ class LeveragePaperBot:
                     f"⏳ Пауза: *15 минут*, остываем."
                 )
                 print(f"\n⚠️ [PAUSE 15m] Достигнут убыток -5%. Пауза 15 минут.")
-                send_tg_message(pause_msg)
+                send_tg_message_async(pause_msg)
 
             elif session_pnl_pct <= -10.0:
                 self.is_stopped = True
                 stop_msg = f"🛑 *АВАРИЙНАЯ ОСТАНОВКА (-10%)*\n💳 Баланс: `${self.current_balance:.2f}`"
                 print(f"\n🚨 [STOP-OUT] Убыток -10%. Остановка торговли.")
-                send_tg_message(stop_msg)
+                send_tg_message_async(stop_msg)
 
 # ==================== СЕРВЕР ОБРАБОТКИ КОМАНД И НАЖАТИЙ КНОПОК ====================
 global_bot_instance = None
@@ -584,9 +587,7 @@ def process_telegram_updates():
                             bot.user_blacklist.add(sym)
                             bot._save_state()
                             bot.awaiting_input_action = None
-                            
-                            extra_info = " *(доработает текущую сделку и уйдёт в бан)*" if bot.in_position and bot.active_symbol == sym else ""
-                            send_tg_message(f"⛔ Монета `{sym}` добавлена в бан-лист!{extra_info}", reply_markup=bot.get_blacklist_keyboard())
+                            send_tg_message_async(f"⛔ Монета `{sym}` добавлена в бан-лист!", reply_markup=bot.get_blacklist_keyboard())
                             continue
 
                         elif bot.awaiting_input_action == "remove_ban":
@@ -596,9 +597,9 @@ def process_telegram_updates():
                             if sym in bot.user_blacklist:
                                 bot.user_blacklist.remove(sym)
                                 bot._save_state()
-                                send_tg_message(f"✅ Монета `{sym}` удалена из бан-листа!", reply_markup=bot.get_blacklist_keyboard())
+                                send_tg_message_async(f"✅ Монета `{sym}` удалена из бан-листа!", reply_markup=bot.get_blacklist_keyboard())
                             else:
-                                send_tg_message(f"⚠️ Монета `{sym}` не найдена в бан-листе.", reply_markup=bot.get_blacklist_keyboard())
+                                send_tg_message_async(f"⚠️ Монета `{sym}` не найдена в бан-листе.", reply_markup=bot.get_blacklist_keyboard())
                             bot.awaiting_input_action = None
                             continue
 
@@ -610,7 +611,7 @@ def process_telegram_updates():
                                 f"🏆 ТОП-Монет: `{bot.top_coins_limit}` | ⛔ В бане: `{len(bot.user_blacklist)}` шт.\n"
                                 "━━━━━━━━━━━━━━━━━━━━━━"
                             )
-                            send_tg_message(start_msg, reply_markup=bot.get_main_menu_keyboard())
+                            send_tg_message_async(start_msg, reply_markup=bot.get_main_menu_keyboard())
 
                         elif msg_text.startswith("/ban "):
                             sym = msg_text.split(" ")[-1].strip().upper()
@@ -618,7 +619,7 @@ def process_telegram_updates():
                                 sym += "USDT"
                             bot.user_blacklist.add(sym)
                             bot._save_state()
-                            send_tg_message(f"⛔ Монета `{sym}` добавлена в Черный Список!", reply_markup=bot.get_blacklist_keyboard())
+                            send_tg_message_async(f"⛔ Монета `{sym}` добавлена в Черный Список!", reply_markup=bot.get_blacklist_keyboard())
 
                         elif msg_text.startswith("/unban "):
                             sym = msg_text.split(" ")[-1].strip().upper()
@@ -626,7 +627,7 @@ def process_telegram_updates():
                                 sym += "USDT"
                             bot.user_blacklist.discard(sym)
                             bot._save_state()
-                            send_tg_message(f"✅ Монета `{sym}` удалена из Черного Списка!", reply_markup=bot.get_blacklist_keyboard())
+                            send_tg_message_async(f"✅ Монета `{sym}` удалена из Черного Списка!", reply_markup=bot.get_blacklist_keyboard())
 
                     if "callback_query" in update:
                         cq = update["callback_query"]
@@ -637,7 +638,7 @@ def process_telegram_updates():
 
                         if data == "main_menu":
                             bot.awaiting_input_action = None
-                            send_tg_message("⚙️ *ГЛАВНОЕ МЕНЮ*", reply_markup=bot.get_main_menu_keyboard())
+                            send_tg_message_async("⚙️ *ГЛАВНОЕ МЕНЮ*", reply_markup=bot.get_main_menu_keyboard())
 
                         elif data == "menu_settings":
                             settings_msg = (
@@ -650,57 +651,57 @@ def process_telegram_updates():
                                 f"━━━━━━━━━━━━━━━━━━━━━━\n"
                                 f"_Выбери параметр для изменения:_"
                             )
-                            send_tg_message(settings_msg, reply_markup=bot.get_settings_keyboard())
+                            send_tg_message_async(settings_msg, reply_markup=bot.get_settings_keyboard())
 
                         elif data == "menu_blacklist":
-                            bl_text = ", ".join(f"`{s}`" for s in bot.user_blacklist) if bot.user_blacklist else "_Черный список пуст._"
+                            bl_text = ", ".join(f"`{s}`" for s in sorted(bot.user_blacklist)) if bot.user_blacklist else "_Черный список пуст._"
                             msg = (
                                 f"⛔ *УПРАВЛЕНИЕ ЧЕРНЫМ СПИСКОМ*\n"
                                 f"━━━━━━━━━━━━━━━━━━━━━━\n"
                                 f"Монеты в бане ({len(bot.user_blacklist)}):\n{bl_text}\n"
                                 f"━━━━━━━━━━━━━━━━━━━━━━"
                             )
-                            send_tg_message(msg, reply_markup=bot.get_blacklist_keyboard())
+                            send_tg_message_async(msg, reply_markup=bot.get_blacklist_keyboard())
 
                         elif data == "add_ban_prompt":
                             bot.awaiting_input_action = "add_ban"
-                            send_tg_message("✏️ *Напиши название тикера для бана* (например: `SOLUSDT` или `DOGE`):")
+                            send_tg_message_async("✏️ *Напиши название тикера для бана* (например: `SOLUSDT` или `DOGE`):")
 
                         elif data == "remove_ban_prompt":
                             bot.awaiting_input_action = "remove_ban"
-                            send_tg_message("✏️ *Напиши название тикера для разбана* (например: `SOLUSDT`):")
+                            send_tg_message_async("✏️ *Напиши название тикера для разбана* (например: `SOLUSDT`):")
 
                         elif data == "show_blacklist":
                             bl_text = "\n".join(f"• `{s}`" for s in sorted(bot.user_blacklist)) if bot.user_blacklist else "_Список пуст._"
-                            send_tg_message(f"📋 *ТЕКУЩИЙ ЧЕРНЫЙ СПИСОК:*\n\n{bl_text}", reply_markup=bot.get_blacklist_keyboard())
+                            send_tg_message_async(f"📋 *ТЕКУЩИЙ ЧЕРНЫЙ СПИСОК:*\n\n{bl_text}", reply_markup=bot.get_blacklist_keyboard())
 
                         elif data == "set_lev_dialog":
                             bot.leverage = 10 if bot.leverage == 5 else (20 if bot.leverage == 10 else 5)
                             bot._save_state()
-                            send_tg_message(f"🕹️ Плечо изменено на `{bot.leverage}x`!", reply_markup=bot.get_settings_keyboard())
+                            send_tg_message_async(f"🕹️ Плечо изменено на `{bot.leverage}x`!", reply_markup=bot.get_settings_keyboard())
 
                         elif data == "set_dep_dialog":
                             bot.current_balance = 50.0 if bot.current_balance == 20.0 else (100.0 if bot.current_balance == 50.0 else 20.0)
                             bot.session_start_balance = bot.current_balance
                             bot._save_state()
-                            send_tg_message(f"💳 Баланс обновлён: `${bot.current_balance:.2f}`!", reply_markup=bot.get_settings_keyboard())
+                            send_tg_message_async(f"💳 Баланс обновлён: `${bot.current_balance:.2f}`!", reply_markup=bot.get_settings_keyboard())
 
                         elif data == "set_top_dialog":
                             bot.top_coins_limit = 50 if bot.top_coins_limit == 30 else (10 if bot.top_coins_limit == 50 else 30)
                             bot._save_state()
-                            send_tg_message(f"🏆 Теперь отслеживаем TOP-`{bot.top_coins_limit}` монет!", reply_markup=bot.get_settings_keyboard())
+                            send_tg_message_async(f"🏆 Теперь отслеживаем TOP-`{bot.top_coins_limit}` монет!", reply_markup=bot.get_settings_keyboard())
 
                         elif data == "close_now":
                             if bot.in_position:
                                 bot.close_paper_position("Ручной сброс с телефона", bot.entry_price)
-                                send_tg_message("🛑 *Позиция экстренно закрыта с телефона!*", reply_markup=bot.get_main_menu_keyboard())
+                                send_tg_message_async("🛑 *Позиция экстренно закрыта с телефона!*", reply_markup=bot.get_main_menu_keyboard())
                             else:
-                                send_tg_message("ℹ️️ Нет активной позиции.", reply_markup=bot.get_main_menu_keyboard())
+                                send_tg_message_async("ℹ Нет активной позиции.", reply_markup=bot.get_main_menu_keyboard())
 
                         elif data == "toggle_pause":
                             bot.manual_paused = not bot.manual_paused
                             st = "⏸️ *Сканер поставлен на паузу.*" if bot.manual_paused else "▶️ *Сканер возобновил работу!*"
-                            send_tg_message(st, reply_markup=bot.get_main_menu_keyboard())
+                            send_tg_message_async(st, reply_markup=bot.get_main_menu_keyboard())
 
                         elif data == "show_stats":
                             total = bot.wins_count + bot.losses_count
@@ -716,16 +717,16 @@ def process_telegram_updates():
                                 f"🎯 Винрейт: `{wr:.1f}%`\n"
                                 f"Статус: " + ("⏸️ На паузе" if bot.manual_paused else "🟢 В поиске")
                             )
-                            send_tg_message(stats_msg, reply_markup=bot.get_main_menu_keyboard())
+                            send_tg_message_async(stats_msg, reply_markup=bot.get_main_menu_keyboard())
 
                         elif data == "skip_rest":
                             bot.pause_until = 0
                             bot.triggered_5_pct_pause = False
-                            send_tg_message("⚡ *Пауза защиты от шторма сброшена!*", reply_markup=bot.get_main_menu_keyboard())
+                            send_tg_message_async("⚡ *Пауза защиты от шторма сброшена!*", reply_markup=bot.get_main_menu_keyboard())
 
                         elif data == "reboot_bot":
                             bot.wall_tracker.clear()
-                            send_tg_message("🔄 *Сканер перезагружен, фильтры и тикеры обновлены!*", reply_markup=bot.get_main_menu_keyboard())
+                            send_tg_message_async("🔄 *Состояние и внутренние трекеры сброшены!*", reply_markup=bot.get_main_menu_keyboard())
 
         except Exception:
             time.sleep(2)
@@ -746,9 +747,9 @@ def start_bot_thread():
         ws.orderbook_stream(depth=50, symbol=symbol, callback=bot.on_orderbook_update)
         ws.trade_stream(symbol=symbol, callback=bot.on_public_trade_update)
 
-    print(f"⚡ Сканер запущен с авто-баном проблемных монет (5 убытков подряд)!\n")
+    print(f"⚡ Сканер запущен с полностью асинхронными вызовами без блокировок!\n")
     
-    send_tg_message("🚀 *Сканер запущен! Система авто-бана монет (5 убытков подряд) активна.*", reply_markup=bot.get_main_menu_keyboard())
+    send_tg_message_async("🚀 *Сканер запущен! Система асинхронных банов и перезагрузок без зависаний активна.*", reply_markup=bot.get_main_menu_keyboard())
 
     while True:
         if bot.is_stopped:
