@@ -13,44 +13,44 @@ import uvicorn
 TELEGRAM_BOT_TOKEN = "8528320744:AAHHUFF1NlunIRfQNfPYIgt71zmQbTrb9cs"
 TELEGRAM_CHAT_ID = "1190982420"
 
-# ==================== НАСТРОЙКИ СТРАТЕГИИ (ПО УМОЛЧАНИЮ) ====================
+# ==================== НАСТРОЙКИ СТРАТЕГИИ ====================
 CATEGORY = "linear"            # Фьючерсы USDT (Mainnet)
-DEFAULT_TOP_COINS_LIMIT = 100   # Top-30 активных альтов
-DEFAULT_INITIAL_BALANCE = 20.0 # Базовый депозит по умолчанию
+DEFAULT_TOP_COINS_LIMIT = 40   # TOP-40 активных альтов
+DEFAULT_INITIAL_BALANCE = 20.0 # Базовый депозит
 DEFAULT_LEVERAGE = 5           # Кредитное плечо (5x)
 MAX_DRAWDOWN_PCT = 10.0        # Остановка при потере -10%
 
-EAT_THRESHOLD_PCT = 75.0       # Закрыть, если стенку разъели/сняли на 75%
-TAKE_PROFIT_PCT = 0.35         # Тейк-профит (+0.35%)
-STOP_LOSS_PCT = 0.20           # Жесткий стоп-лосс (-0.20%)
-BREAKEVEN_TRIGGER_PCT = 0.20   # Перенос SL в Безубыток при достижении +0.20%
-COOLDOWN_SEC = 20              # Пауза после закрытия сделки (20 сек)
-TAKER_FEE_PCT = 0.055 * 2      # Комиссия биржи (~0.11% round-trip)
-POSITION_TIMEOUT_SEC = 180     # Режим эвакуации через 3 минуты (180 сек)
+SLIPPAGE_PCT = 0.02            # Учет проскальзывания 0.02%
 
-# --- ФИЛЬТР АКТИВНОСТИ ТОРГОВЛИ (ЛЕНТА СДЕЛОК) ---
-MIN_TRADES_PER_MIN = 25        # Минимум 25 сделок за последние 60 сек
+# --- БЫСТРЫЕ ТАЙМ-АУТЫ ---
+POSITION_TIMEOUT_SEC = 45      # Эвакуация через 45 секунд
+COOLDOWN_SEC = 5               # Пауза между сделками 5 секунд
+EAT_THRESHOLD_PCT = 60.0       # Выход при разъедании на 60%
 
-# --- СКАЛЬПЕРСКИЕ ФИЛЬТРЫ И СКОРОСТЬ ---
-PROXIMITY_PCT = 0.12           # Дистанция до стенки (<= 0.12%)
-MIN_WALL_LIFETIME_SEC = 0.1    # МГНОВЕННЫЙ ВХОД (0.1 сек)
-MAX_SPREAD_PCT = 0.04          # Максимальный спред (<= 0.04%)
+# --- ТАРГЕТЫ ---
+TAKE_PROFIT_PCT = 0.28         # Тейк-профит (+0.28%)
+STOP_LOSS_PCT = 0.18           # Стоп-лосс (-0.18%)
+BREAKEVEN_TRIGGER_PCT = 0.12   # Перенос в БУ при +0.12%
+TAKER_FEE_PCT = 0.055 * 2      # Комиссия биржи (~0.11%)
 
-# --- ДВУХУРОВНЕВАЯ ЗАЩИТА ОТ ШТОРМА ---
+# --- ФИЛЬТРЫ ---
+PROXIMITY_PCT = 0.22           # Дистанция до стенки (<= 0.22%)
+MIN_WALL_LIFETIME_SEC = 0.0    # Мгновенный вход
+MAX_SPREAD_PCT = 0.06          # Спред (<= 0.06%)
+MIN_TRADES_PER_MIN = 10        # Минимум 10 сделок в минуту
+
 REST_5_PCT_SEC = 900           # Слив 5% -> отдых 15 минут
 REST_10_PCT_SEC = 3600         # Слив 10% -> отдых 1 час
 
-LOG_INTERVAL_SEC = 1           # Обновление пульса в консоли раз в 1 сек
-TG_UPDATE_INTERVAL_SEC = 3.0   # Обновление шкалы в TG раз в 3 секунды
+LOG_INTERVAL_SEC = 1           
+TG_UPDATE_INTERVAL_SEC = 3.0   
 
-# --- ФАЙЛЫ ДАННЫХ И ЛОГОВ ---
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 LOG_FILE_PATH = os.path.join(SCRIPT_DIR, "trade_log.txt")
 STATE_FILE_PATH = os.path.join(SCRIPT_DIR, "state.json")
 # =====================================================================
 
 def send_tg_message(text, reply_markup=None):
-    """Отправка сообщения с сериализованной клавиатурой кнопок"""
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {"chat_id": TELEGRAM_CHAT_ID, "text": text, "parse_mode": "Markdown"}
     if reply_markup:
@@ -64,7 +64,6 @@ def send_tg_message(text, reply_markup=None):
     return None
 
 def update_tg_message(message_id, text, reply_markup=None):
-    """Динамическое редактирование существующего сообщения"""
     if not message_id:
         return
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/editMessageText"
@@ -81,7 +80,7 @@ def update_tg_message(message_id, text, reply_markup=None):
     except Exception:
         pass
 
-def make_progress_bar(elapsed_sec, total_sec=180, length=10):
+def make_progress_bar(elapsed_sec, total_sec=45, length=10):
     pct = min(1.0, elapsed_sec / total_sec)
     filled_length = int(length * pct)
     bar = "🟩" * filled_length + "░" * (length - filled_length)
@@ -89,7 +88,7 @@ def make_progress_bar(elapsed_sec, total_sec=180, length=10):
     mins, secs = divmod(int(elapsed_sec), 60)
     total_mins, total_secs = divmod(total_sec, 60)
     time_str = f"{mins:02d}:{secs:02d} / {total_mins:02d}:{total_secs:02d}"
-    warning_suffix = " ⚡ *Скоро эвакуация!*" if pct >= 0.8 else ""
+    warning_suffix = " ⚡ *Скоро эвакуация!*" if pct >= 0.75 else ""
     return f"`{bar}` *{pct_digits}%* ({time_str}){warning_suffix}"
 
 def write_file_log(line_text):
@@ -105,9 +104,13 @@ def write_file_log(line_text):
 
 class LeveragePaperBot:
     def __init__(self):
-        print("⚙️ Инициализация сканера...")
+        print("⚡ Инициализация скоростного сканера...")
         
         self.lock = threading.Lock()
+        
+        self.in_position = False
+        self.active_symbol = None
+        self.position_side = None
         
         self.leverage = DEFAULT_LEVERAGE
         self.top_coins_limit = DEFAULT_TOP_COINS_LIMIT
@@ -128,9 +131,6 @@ class LeveragePaperBot:
 
         self.max_allowed_loss = self.session_start_balance * (MAX_DRAWDOWN_PCT / 100)
         
-        self.in_position = False
-        self.active_symbol = None
-        self.position_side = None
         self.entry_price = 0.0
         self.wall_price = 0.0
         self.initial_wall_size = 0.0
@@ -198,7 +198,7 @@ class LeveragePaperBot:
                 
                 if self.in_position and self.active_symbol == symbol:
                     turnover = float(t.get("turnover24h", 0))
-                    wall_threshold = 350_000 if symbol == "SOLUSDT" else max(200_000, round(turnover * 0.0012, -3))
+                    wall_threshold = 250_000 if symbol == "SOLUSDT" else max(100_000, round(turnover * 0.0008, -3))
                     targets[symbol] = wall_threshold
                     continue
 
@@ -206,7 +206,7 @@ class LeveragePaperBot:
                     continue  
 
                 turnover = float(t.get("turnover24h", 0))
-                wall_threshold = 350_000 if symbol == "SOLUSDT" else max(200_000, round(turnover * 0.0012, -3))
+                wall_threshold = 250_000 if symbol == "SOLUSDT" else max(100_000, round(turnover * 0.0008, -3))
                 targets[symbol] = wall_threshold
 
                 if len(targets) >= self.top_coins_limit:
@@ -215,15 +215,15 @@ class LeveragePaperBot:
             return targets
         except Exception as e:
             print(f"❌ Ошибка получения тикеров: {e}")
-            return {"SOLUSDT": 350000, "XRPUSDT": 200000, "DOGEUSDT": 200000}
+            return {"SOLUSDT": 250000, "XRPUSDT": 100000, "DOGEUSDT": 100000}
 
     def reload_websocket_streams(self):
-        """Безопасная перезагрузка WebSocket-стримов при смене настроек"""
         if not self.ws_client:
             return
         self.targets = self._get_top_mainnet_symbols()
+        self.max_seen_wall = {"symbol": "", "usd": 0}  # Сброс старой застрявшей стенки
         pos_size = self.current_balance * self.leverage
-        print("\n🚀 [RELOAD] Переподключение WebSocket-потоков на новый список монет...")
+        print("\n🚀 [RELOAD] Переподключение WebSocket-потоков...")
         print(f"💳 Депозит: ${self.current_balance:.2f} - Плечо: {self.leverage}x - TOP-{self.top_coins_limit} - Объём: ${pos_size:.2f}\n")
         
         for symbol in self.targets.keys():
@@ -302,7 +302,7 @@ class LeveragePaperBot:
             f"💼 Объём позиции: `${position_usd:.2f}`\n\n"
             f"🎯 *TP:* `{self.tp_price}`  |  🛑 *SL:* `{self.sl_price}`{be_status}\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"⏱️ *Тайм-аут позиции (3 мин):*\n"
+            f"⏱️ *Быстрый тайм-аут (45 сек):*\n"
             f"{bar_text}"
         )
 
@@ -326,7 +326,7 @@ class LeveragePaperBot:
         best_bid = max(bids.keys())
         best_ask = min(asks.keys())
 
-        # 1. КОНТРОЛЬ СУЩЕСТВУЮЩЕЙ ПОЗИЦИИ
+        # 1. КОНТРОЛЬ ПОЗИЦИИ
         if self.in_position:
             if self.active_symbol == symbol:
                 current_wall_map = bids if self.position_side == "Buy" else asks
@@ -350,11 +350,13 @@ class LeveragePaperBot:
                     update_tg_message(self.active_tg_msg_id, updated_text, reply_markup=self.get_main_menu_keyboard())
                     self.last_tg_update_time = now
 
-                is_in_profit_or_breakeven = current_pnl_pct >= 0.0
-
+                # ⚡ БЫСТРАЯ ЭВАКУАЦИЯ ЧЕРЕЗ 45 СЕКУНД (если есть хотя бы микро-профит)
                 if elapsed_time >= POSITION_TIMEOUT_SEC:
-                    if is_in_profit_or_breakeven:
-                        self.close_paper_position("Тайм-аут 3 мин (Эвакуация в 0/плюс)", current_price)
+                    if current_pnl_pct >= 0.15:
+                        self.close_paper_position("Быстрый сброс в профит (45 сек)", current_price)
+                        return
+                    elif elapsed_time >= 70:
+                        self.close_paper_position("Тайм-аут без движения (70 сек)", current_price)
                         return
 
                 if self.position_side == "Buy":
@@ -373,12 +375,12 @@ class LeveragePaperBot:
                         return
 
                 if eaten_pct >= EAT_THRESHOLD_PCT:
-                    if not is_in_profit_or_breakeven:
-                        reason = f"Стенку разъели/сняли на {eaten_pct:.1f}%"
+                    if current_pnl_pct < 0.15:
+                        reason = f"Стенку разъели на {eaten_pct:.1f}%"
                         self.close_paper_position(reason, current_price)
             return
 
-        # 2. ФИЛЬТР ЧЕРНОГО СПИСКА ДЛЯ НОВЫХ ВХОДОВ
+        # 2. ФИЛЬТР БАН-ЛИСТА
         if symbol in self.user_blacklist:
             return
 
@@ -391,15 +393,17 @@ class LeveragePaperBot:
         max_bid = max([p * s for p, s in bids.items()], default=0)
         max_ask = max([p * s for p, s in asks.items()], default=0)
         current_max = max(max_bid, max_ask)
-        if current_max > self.max_seen_wall["usd"]:
+        
+        # Динамическое обновление стенок без "залипания" на одной монете
+        if current_max > self.max_seen_wall["usd"] or self.max_seen_wall["symbol"] in self.user_blacklist:
             self.max_seen_wall = {"symbol": symbol, "usd": current_max}
 
         if now - self.last_log_time > LOG_INTERVAL_SEC:
             status_str = "ПАУЗА" if self.manual_paused else (f"В ПОЗИЦИИ [{self.active_symbol}]" if self.in_position else f"ПОИСК СТЕНОК (Депо: ${self.current_balance:.2f})")
-            print(f"📡 [PULSE] Сканирование... - Макс. стенка: {self.max_seen_wall['symbol']} (${self.max_seen_wall['usd']:,.0f}) - {status_str}")
+            print(f"📡 [PULSE] Сканирование {symbol}... - Стенка: ${current_max:,.0f} - {status_str}")
             self.last_log_time = now
 
-        # 3. ПОИСК НОВОЙ ТОЧКИ ВХОДА
+        # 3. ПОИСК ВХОДА
         if now - self.last_close_time < COOLDOWN_SEC:
             return
 
@@ -439,18 +443,21 @@ class LeveragePaperBot:
         self.in_position = True
         self.active_symbol = symbol
         self.position_side = side
-        self.entry_price = price
+        
+        slippage_mult = (1 + SLIPPAGE_PCT / 100) if side == "Buy" else (1 - SLIPPAGE_PCT / 100)
+        self.entry_price = round(price * slippage_mult, 4)
+        
         self.wall_price = price
         self.initial_wall_size = wall_size
         self.entry_time = time.time()
         self.last_tg_update_time = self.entry_time
         self.is_breakeven_set = False
 
-        self.tp_price = round(price * (1 + TAKE_PROFIT_PCT / 100 if side == "Buy" else 1 - TAKE_PROFIT_PCT / 100), 4)
-        self.sl_price = round(price * (1 - STOP_LOSS_PCT / 100 if side == "Buy" else 1 + STOP_LOSS_PCT / 100), 4)
+        self.tp_price = round(self.entry_price * (1 + TAKE_PROFIT_PCT / 100 if side == "Buy" else 1 - TAKE_PROFIT_PCT / 100), 4)
+        self.sl_price = round(self.entry_price * (1 - STOP_LOSS_PCT / 100 if side == "Buy" else 1 + STOP_LOSS_PCT / 100), 4)
 
         msg_text = self._generate_open_card_text(0)
-        print(f"\n🔥 [LOG] {side} {symbol} по {price}! Стенка: ${price * wall_size:,.0f}")
+        print(f"\n⚡ [LOG] {side} {symbol} по {self.entry_price}! Стенка: ${price * wall_size:,.0f}")
         
         self.active_tg_msg_id = send_tg_message(msg_text, reply_markup=self.get_main_menu_keyboard())
 
@@ -460,10 +467,14 @@ class LeveragePaperBot:
                 return
 
             now = time.time()
+            
+            slippage_mult = (1 - SLIPPAGE_PCT / 100) if self.position_side == "Buy" else (1 + SLIPPAGE_PCT / 100)
+            actual_close_price = round(close_price * slippage_mult, 4)
+
             if self.position_side == "Buy":
-                gross_pnl_pct = ((close_price - self.entry_price) / self.entry_price) * 100
+                gross_pnl_pct = ((actual_close_price - self.entry_price) / self.entry_price) * 100
             else:
-                gross_pnl_pct = ((self.entry_price - close_price) / self.entry_price) * 100
+                gross_pnl_pct = ((self.entry_price - actual_close_price) / self.entry_price) * 100
 
             net_pnl_pct = gross_pnl_pct - TAKER_FEE_PCT
             position_usd = self.current_balance * self.leverage
@@ -490,7 +501,7 @@ class LeveragePaperBot:
 
             file_log_entry = (
                 f"Открыл {closed_symbol} ({self.position_side}) по {self.entry_price}! "
-                f"Закрылся по {close_price} ({reason}) - "
+                f"Закрылся по {actual_close_price} ({reason}) - "
                 f"PnL: {net_pnl_pct:+.2f}% (${net_usd_pnl:+.2f}) - "
                 f"Баланс: ${self.current_balance:.2f}"
             )
@@ -503,7 +514,7 @@ class LeveragePaperBot:
                 f"━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"📌 Позиция: `{side_icon}`\n"
                 f"💡 Причина: `{reason}`\n"
-                f"💵 Выход по цене: `{close_price}` USDT\n"
+                f"💵 Выход по цене: `{actual_close_price}` USDT\n"
                 f"📊 Результат: *{status_icon}* (`{net_pnl_pct:+.2f}%` / `${net_usd_pnl:+.2f}`)\n\n"
                 f"📈 *СТАТИСТИКА СЕССИИ*\n"
                 f"⚔️ Сделки: 🟢 `{self.wins_count}`  |  🛑 `{self.losses_count}`\n"
@@ -555,7 +566,6 @@ def process_telegram_updates():
                     if not bot:
                         continue
 
-                    # 1. ОБРАБОТКА ТЕКСТОВЫХ КОМАНД
                     if "message" in update and "text" in update["message"]:
                         msg_text = update["message"]["text"].strip()
                         
@@ -614,7 +624,6 @@ def process_telegram_updates():
                             bot.reload_websocket_streams()
                             send_tg_message(f"✅ Монета `{sym}` удалена из Черного Списка!", reply_markup=bot.get_blacklist_keyboard())
 
-                    # 2. ОБРАБОТКА ИНТЕРАКТИВНЫХ КНОПОК
                     if "callback_query" in update:
                         cq = update["callback_query"]
                         cq_id = cq["id"]
@@ -728,16 +737,17 @@ def start_bot_thread():
 
     threading.Thread(target=process_telegram_updates, daemon=True).start()
 
-    ws = WebSocket(testnet=False, channel_type=CATEGORY)
-    bot.ws_client = ws  # Привязываем экземпляр WS к объекту бота
+    # Включаем автоматический ping/pong интервал
+    ws = WebSocket(testnet=False, channel_type=CATEGORY, ping_interval=20, ping_timeout=10)
+    bot.ws_client = ws
 
     for symbol in bot.targets.keys():
         ws.orderbook_stream(depth=50, symbol=symbol, callback=bot.on_orderbook_update)
         ws.trade_stream(symbol=symbol, callback=bot.on_public_trade_update)
 
-    print(f"🚀 Сканер запущен! WebSocket-потоки подвязаны к единой управляющей шине.\n")
+    print(f"⚡ Сканер запущен с динамическим логом и авто-восстановлением соединений!\n")
     
-    send_tg_message("🚀 *Сканер запущен! Напиши /start для открытия панели управления.*", reply_markup=bot.get_main_menu_keyboard())
+    send_tg_message("🚀 *Сканер запущен! Динамический лог и авто-восстановление WebSocket активны.*", reply_markup=bot.get_main_menu_keyboard())
 
     while True:
         if bot.is_stopped:
