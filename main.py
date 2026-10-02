@@ -145,7 +145,7 @@ class LeveragePaperBot:
         self.is_breakeven_set = False
         self.last_close_time = 0
         self.last_log_time = time.time()
-        self.last_ws_data_time = time.time() # Таймер живого WebSocket
+        self.last_ws_data_time = time.time()
         self.last_tg_update_time = 0.0
         self.active_tg_msg_id = None
         self.max_seen_wall = {"symbol": "", "usd": 0}
@@ -185,7 +185,7 @@ class LeveragePaperBot:
                     self.user_blacklist = set(data.get("user_blacklist", []))
                     print(f"📦 [STATE] Восстановлен баланс: ${self.current_balance:.2f} | Плечо: {self.leverage}x | Бан-лист: {len(self.user_blacklist)} монет")
             except Exception as e:
-                print(f"⚠️ [STATE ERROR] Ошибка чтения файла состояния: {e}")
+                print(f"⚠️ [STATE ERROR] Файл состояния поврежден ({e}). Восстанавливаем по умолчанию...")
 
     def _get_top_mainnet_symbols(self):
         url = "https://api.bybit.com/v5/market/tickers?category=linear"
@@ -229,7 +229,7 @@ class LeveragePaperBot:
             print("\n🔄 [HARD RECONNECT] Пересоздание WebSocket сокетов Bybit...")
             try:
                 if self.ws_client:
-                    self.ws_client._exit() # Принудительно закрываем старое зависшее соединение
+                    self.ws_client._exit()
             except Exception:
                 pass
             
@@ -242,11 +242,11 @@ class LeveragePaperBot:
 
             for symbol in self.targets.keys():
                 try:
-                    # depth=20 существенно снижает нагрузку на сеть
-                    new_ws.orderbook_stream(depth=20, symbol=symbol, callback=self.on_orderbook_update)
+                    # ⚠️ ВАЖНО: depth=50 — официально поддерживаемая глубина стакана в Bybit V5
+                    new_ws.orderbook_stream(depth=50, symbol=symbol, callback=self.on_orderbook_update)
                     new_ws.trade_stream(symbol=symbol, callback=self.on_public_trade_update)
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"⚠️ Ошибка подписки на {symbol}: {e}")
             
             self.last_ws_data_time = time.time()
             print("✅ [HARD RECONNECT] WebSocket успешно переподключен и активен!\n")
@@ -327,7 +327,7 @@ class LeveragePaperBot:
 
     def on_orderbook_update(self, message):
         now = time.time()
-        self.last_ws_data_time = now # Фиксируем пульс соединения
+        self.last_ws_data_time = now
 
         if self.is_stopped or self.manual_paused or now < self.pause_until:
             return
@@ -746,7 +746,6 @@ def process_telegram_updates():
                             send_tg_message_async("⚡ *Пауза защиты от шторма сброшена!*", reply_markup=bot.get_main_menu_keyboard())
 
                         elif data == "reboot_bot":
-                            # Принудительное реальное переподключение WebSocket
                             threading.Thread(target=bot.hard_reconnect_websocket, daemon=True).start()
                             send_tg_message_async("🔄 *Сокеты и сокет-соединения с Bybit полностью пересозданы!*", reply_markup=bot.get_main_menu_keyboard())
 
@@ -761,7 +760,7 @@ def websocket_watchdog_thread(bot_instance):
             time.sleep(5)
             if bot_instance and not bot_instance.manual_paused and not bot_instance.is_stopped:
                 idle_time = time.time() - bot_instance.last_ws_data_time
-                if idle_time > 15: # Если более 15 секунд нет тиков - сокет умер!
+                if idle_time > 15:
                     print(f"\n🚨 [WATCHDOG] WebSocket застрял! Данных нет {idle_time:.1f} сек. Авто-реанимация...")
                     bot_instance.hard_reconnect_websocket()
         except Exception as e:
@@ -789,7 +788,7 @@ def start_bot_thread():
 
 app = FastAPI()
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 def health_check():
     return {"status": "ok", "bot": "working"}
 
