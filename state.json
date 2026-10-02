@@ -1,8 +1,8 @@
 {
-    "current_balance": 24.60729798527785,
+    "current_balance": 247.18,
     "session_start_balance": 20.0,
-    "wins_count": 110,
-    "losses_count": 63,
+    "wins_count": 847,
+    "losses_count": 326,
     "leverage": 5,
     "top_coins_limit": 50,
     "user_blacklist": [
