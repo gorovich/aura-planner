@@ -21,7 +21,16 @@ DEFAULT_LEVERAGE = 5           # Кредитное плечо (5x)
 MAX_DRAWDOWN_PCT = 10.0        # Остановка при потере -10%
 
 SLIPPAGE_PCT = 0.02            # Учет проскальзывания 0.02%
-MAX_CONSECUTIVE_LOSSES = 5     # 🚨 АВТО-БАН ПОСЛЕ 5 УБЫТКОВ ПОДРЯД
+MAX_CONSECUTIVE_LOSSES = 5     # Жесткий авто-бан после 5 убытков подряд
+
+# --- УМНЫЕ ФИЛЬТРЫ ЗА X МИНУТ ---
+PERFORMANCE_WINDOW_SEC = 1800  # Окно анализа монеты (30 минут)
+MAX_LOSSES_IN_WINDOW = 3       # Макс. убытков за 30 минут -> Временный бан
+MAX_WINDOW_PNL_LOSS = -0.30    # Макс. суммарный пролив монеты за 30 мин (-0.30%)
+
+VWAP_WINDOW_SEC = 900          # Окно расчета микро-тренда VWAP (15 минут)
+TAPE_DELTA_WINDOW_SEC = 10     # Окно анализа ленты перед входом (10 секунд)
+MAX_IMBALANCE_RATIO = 0.30     # Макс. допустимый объем противника к стенке (30%)
 
 # --- БЫСТРЫЕ ТАЙМ-АУТЫ ---
 POSITION_TIMEOUT_SEC = 45      # Эвакуация через 45 секунд
@@ -34,7 +43,7 @@ STOP_LOSS_PCT = 0.18           # Стоп-лосс (-0.18%)
 BREAKEVEN_TRIGGER_PCT = 0.12   # Перенос в БУ при +0.12%
 TAKER_FEE_PCT = 0.055 * 2      # Комиссия биржи (~0.11%)
 
-# --- ФИЛЬТРЫ ---
+# --- ФИЛЬТРЫ СТАКАНА ---
 PROXIMITY_PCT = 0.22           # Дистанция до стенки (<= 0.22%)
 MIN_WALL_LIFETIME_SEC = 0.0    # Мгновенный вход
 MAX_SPREAD_PCT = 0.06          # Спред (<= 0.06%)
@@ -108,7 +117,7 @@ def write_file_log(line_text):
 
 class LeveragePaperBot:
     def __init__(self):
-        print("⚡ Инициализация авто-сканера с системной перезагрузкой сокетов...")
+        print("⚡ Инициализация умного сканера с анализом за X минут и VWAP...")
         
         self.lock = threading.Lock()
         
@@ -126,13 +135,14 @@ class LeveragePaperBot:
         
         self.user_blacklist = set()
         self.consecutive_losses = defaultdict(int)
+        self.coin_trade_history = defaultdict(list) # История PnL по монетам за X минут: [(timestamp, pnl_pct)]
         self.awaiting_input_action = None
         
         self._load_state()
 
         self.ws_client = None
         self.targets = self._get_top_mainnet_symbols()
-        self.trade_history = defaultdict(deque)
+        self.trade_history = defaultdict(deque) # Длинная история тиков: [(timestamp, price, volume, side)]
 
         self.max_allowed_loss = self.session_start_balance * (MAX_DRAWDOWN_PCT / 100)
         
@@ -185,7 +195,7 @@ class LeveragePaperBot:
                     self.user_blacklist = set(data.get("user_blacklist", []))
                     print(f"📦 [STATE] Восстановлен баланс: ${self.current_balance:.2f} | Плечо: {self.leverage}x | Бан-лист: {len(self.user_blacklist)} монет")
             except Exception as e:
-                print(f"⚠️ [STATE ERROR] Файл состояния поврежден ({e}). Восстанавливаем по умолчанию...")
+                print(f"⚠️ [STATE ERROR] Файл состояния поврежден. Инициализация по умолчанию...")
 
     def _get_top_mainnet_symbols(self):
         url = "https://api.bybit.com/v5/market/tickers?category=linear"
@@ -224,7 +234,6 @@ class LeveragePaperBot:
             return {"SOLUSDT": 250000, "XRPUSDT": 100000, "DOGEUSDT": 100000}
 
     def hard_reconnect_websocket(self):
-        """Полная принудительная пересборка WebSocket при обрывах связи"""
         with self.lock:
             print("\n🔄 [HARD RECONNECT] Пересоздание WebSocket сокетов Bybit...")
             try:
@@ -242,7 +251,6 @@ class LeveragePaperBot:
 
             for symbol in self.targets.keys():
                 try:
-                    # ⚠️ ВАЖНО: depth=50 — официально поддерживаемая глубина стакана в Bybit V5
                     new_ws.orderbook_stream(depth=50, symbol=symbol, callback=self.on_orderbook_update)
                     new_ws.trade_stream(symbol=symbol, callback=self.on_public_trade_update)
                 except Exception as e:
@@ -258,17 +266,61 @@ class LeveragePaperBot:
             return
         now = time.time()
         trades = message.get("data", [])
-        for _ in trades:
-            self.trade_history[symbol].append(now)
+        for tr in trades:
+            price = float(tr.get("p", 0))
+            vol = float(tr.get("v", 0))
+            side = tr.get("S", "") # Buy или Sell
+            self.trade_history[symbol].append((now, price, vol, side))
 
-        while self.trade_history[symbol] and self.trade_history[symbol][0] < now - 60:
+        # Очищаем историю старее 15 минут (для VWAP)
+        while self.trade_history[symbol] and self.trade_history[symbol][0][0] < now - VWAP_WINDOW_SEC:
             self.trade_history[symbol].popleft()
 
     def get_recent_trade_count(self, symbol):
         now = time.time()
-        while self.trade_history[symbol] and self.trade_history[symbol][0] < now - 60:
-            self.trade_history[symbol].popleft()
-        return len(self.trade_history[symbol])
+        count = sum(1 for tr in self.trade_history[symbol] if tr[0] >= now - 60)
+        return count
+
+    # 📊 1. РАСЧЕТ VWAP ЗА ПОСЛЕДНИЕ 15 МИНУТ (МИКРО-ТРЕНД)
+    def calculate_vwap_15m(self, symbol):
+        now = time.time()
+        pv_sum = 0.0
+        vol_sum = 0.0
+        for ts, price, vol, _ in self.trade_history[symbol]:
+            if ts >= now - VWAP_WINDOW_SEC:
+                pv_sum += price * vol
+                vol_sum += vol
+        return (pv_sum / vol_sum) if vol_sum > 0 else None
+
+    # ⚡ 2. АНАЛИЗ ДЕЛЬТЫ ЛЕНТЫ ЗА 10 СЕКУНД (АГРЕССИЯ МАРКЕТ-ОРДЕРОВ)
+    def check_tape_aggressors_usd(self, symbol, side_to_open, wall_size_usd):
+        now = time.time()
+        opposite_side = "Sell" if side_to_open == "Buy" else "Buy"
+        aggressor_vol_usd = 0.0
+        
+        for ts, price, vol, side in self.trade_history[symbol]:
+            if ts >= now - TAPE_DELTA_WINDOW_SEC and side == opposite_side:
+                aggressor_vol_usd += price * vol
+                
+        # Если объем агрессивного продавца превышает 30% от размера стенки — вход блокируется
+        if aggressor_vol_usd > (wall_size_usd * MAX_IMBALANCE_RATIO):
+            return False
+        return True
+
+    # 🛡️ 3. ПРОВЕРКА ЭФФЕКТИВНОСТИ МОНЕТЫ ЗА 30 МИНУТ (УПРЕЖДАЮЩИЙ АВТО-БАН)
+    def is_coin_failing_recently(self, symbol):
+        now = time.time()
+        # Фильтруем историю сделок за последние 30 минут
+        recent_pnl = [pnl for ts, pnl in self.coin_trade_history[symbol] if ts >= now - PERFORMANCE_WINDOW_SEC]
+        
+        if len(recent_pnl) >= 3:
+            recent_losses = [pnl for pnl in recent_pnl if pnl < 0]
+            sum_pnl = sum(recent_pnl)
+            
+            # Если 3 убытка за 30 минут ИЛИ просадка по монете > -0.30%
+            if len(recent_losses) >= MAX_LOSSES_IN_WINDOW or sum_pnl <= MAX_WINDOW_PNL_LOSS:
+                return True, len(recent_losses), sum_pnl
+        return False, 0, 0.0
 
     def get_main_menu_keyboard(self):
         pause_btn_text = "▶️ СНЯТЬ ПАУЗУ" if self.manual_paused else "⏸️ ПАУЗА БОТА"
@@ -334,6 +386,21 @@ class LeveragePaperBot:
 
         symbol = message.get("topic", "").split(".")[-1]
         if symbol in self.user_blacklist or symbol not in self.targets:
+            return
+
+        # 🛡️ ПРОВЕРКА ЭФФЕКТИВНОСТИ МОНЕТЫ ЗА 30 МИНУТ
+        is_bad, losses_cnt, sum_pnl = self.is_coin_failing_recently(symbol)
+        if is_bad:
+            self.user_blacklist.add(symbol)
+            self._save_state()
+            ban_text = (
+                f"🛡️ *УПРЕЖДАЮЩИЙ АВТО-БАН* — `{symbol}`\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"⚠️ Монета за 30 мин принесла `{losses_cnt}` убытка (PnL: `{sum_pnl:+.2f}%`)\n"
+                f"🚫 Монета забанена для защиты депозита."
+            )
+            print(f"\n🛡️ [PREVENTIVE BAN] Монета {symbol} забанена по статистике за 30 минут!\n")
+            send_tg_message_async(ban_text, reply_markup=self.get_blacklist_keyboard())
             return
 
         data = message.get("data", {})
@@ -418,19 +485,30 @@ class LeveragePaperBot:
             print(f"📡 [PULSE] Сканирование {symbol}... - Стенка: ${current_max:,.0f} - {status_str}")
             self.last_log_time = now
 
-        # 3. ПОИСК ВХОДА
+        # 3. ПОИСК ВХОДА С УМНЫМИ ФИЛЬТРАМИ
         if now - self.last_close_time < COOLDOWN_SEC:
             return
 
         recent_trades = self.get_recent_trade_count(symbol)
+        vwap_15m = self.calculate_vwap_15m(symbol)
 
-        # Bids (Buy)
+        # Bids (Buy - LONG)
         for price, size in bids.items():
-            if price * size >= wall_threshold_usd:
+            wall_usd = price * size
+            if wall_usd >= wall_threshold_usd:
                 dist_pct = ((best_bid - price) / best_bid) * 100
                 if dist_pct <= PROXIMITY_PCT:
                     if recent_trades < MIN_TRADES_PER_MIN:
                         continue
+                    
+                    # 📈 ТРЕКЕР ТРЕНДА VWAP: Берем LONG только если цена ВЫШЕ или у VWAP (Бычий тренд)
+                    if vwap_15m and best_bid < vwap_15m:
+                        continue
+
+                    # ⚡ АНАЛИЗ ДЕЛЬТЫ ЛЕНТЫ: Нет ли агрессивных продаж против стенки
+                    if not self.check_tape_aggressors_usd(symbol, "Buy", wall_usd):
+                        continue
+
                     key = (symbol, "Buy", price)
                     if key not in self.wall_tracker:
                         self.wall_tracker[key] = now
@@ -439,13 +517,23 @@ class LeveragePaperBot:
                         self.wall_tracker.clear()
                         return
 
-        # Asks (Sell)
+        # Asks (Sell - SHORT)
         for price, size in asks.items():
-            if price * size >= wall_threshold_usd:
+            wall_usd = price * size
+            if wall_usd >= wall_threshold_usd:
                 dist_pct = ((price - best_ask) / best_ask) * 100
                 if dist_pct <= PROXIMITY_PCT:
                     if recent_trades < MIN_TRADES_PER_MIN:
                         continue
+                    
+                    # 📉 ТРЕКЕР ТРЕНДА VWAP: Берем SHORT только если цена НИЖЕ или у VWAP (Медвежий тренд)
+                    if vwap_15m and best_ask > vwap_15m:
+                        continue
+
+                    # ⚡ АНАЛИЗ ДЕЛЬТЫ ЛЕНТЫ: Нет ли агрессивных покупок против стенки
+                    if not self.check_tape_aggressors_usd(symbol, "Sell", wall_usd):
+                        continue
+
                     key = (symbol, "Sell", price)
                     if key not in self.wall_tracker:
                         self.wall_tracker[key] = now
@@ -501,6 +589,9 @@ class LeveragePaperBot:
             self.current_balance += net_usd_pnl
             closed_symbol = self.active_symbol
             
+            # Сохраняем результат сделки в историю за X минут
+            self.coin_trade_history[closed_symbol].append((now, net_pnl_pct))
+
             if net_pnl_pct > 0:
                 self.wins_count += 1
                 status_icon = "🟢 ПРОФИТ"
@@ -754,7 +845,6 @@ def process_telegram_updates():
         time.sleep(0.5)
 
 def websocket_watchdog_thread(bot_instance):
-    """Поток-наблюдатель (Watchdog) - проверяет 'пульс' тикеров каждые 5 секунд"""
     while True:
         try:
             time.sleep(5)
@@ -777,8 +867,8 @@ def start_bot_thread():
 
     bot.hard_reconnect_websocket()
 
-    print(f"⚡ Сканер запущен с автоматическим Watchdog-реаниматором WebSocket!\n")
-    send_tg_message_async("🚀 *Сканер запущен! Поток-наблюдатель Watchdog активен (авто-реаниматор сокетов).*", reply_markup=bot.get_main_menu_keyboard())
+    print(f"⚡ Сканер запущен с умной аналитикой (VWAP + Дельта ленты + Упреждающий бан за 30 мин)!\n")
+    send_tg_message_async("🚀 *Сканер запущен! VWAP-трекер, фильтр дельты и упреждающий бан за 30 минут активны.*", reply_markup=bot.get_main_menu_keyboard())
 
     while True:
         if bot.is_stopped:
