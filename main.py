@@ -718,8 +718,11 @@ def process_telegram_updates():
                                 sym += "USDT"
                             if sym in bot.user_blacklist:
                                 bot.user_blacklist.remove(sym)
+                                # 🧹 СБРАСЫВАЕМ ИСТОРИЮ И СЧЕТЧИКИ УБЫТКОВ ПРИ РАЗБАНЕ
+                                bot.consecutive_losses[sym] = 0
+                                bot.coin_trade_history[sym] = []
                                 bot._save_state()
-                                send_tg_message_async(f"✅ Монета `{sym}` удалена из бан-листа!", reply_markup=bot.get_blacklist_keyboard())
+                                send_tg_message_async(f"✅ Монета `{sym}` удалена из бан-листа и её история очищена!", reply_markup=bot.get_blacklist_keyboard())
                             else:
                                 send_tg_message_async(f"⚠️ Монета `{sym}` не найдена в бан-листе.", reply_markup=bot.get_blacklist_keyboard())
                             bot.awaiting_input_action = None
