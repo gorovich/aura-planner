@@ -66,15 +66,21 @@ def send_tg_message(text, reply_markup=None):
     if reply_markup:
         payload["reply_markup"] = json.dumps(reply_markup)
     try:
-        res = requests.post(url, json=payload, timeout=5).json()
+        # Жесткий таймаут 3 секунды, чтобы поток никогда не «залипал»
+        res = requests.post(url, json=payload, timeout=3).json()
         if res.get("ok"):
             return res.get("result", {}).get("message_id")
     except Exception as e:
-        print(f"❌ [LOG] Ошибка отправки в TG: {e}")
+        print(f"❌ [TG ERROR] Не удалось отправить сообщение: {e}")
     return None
 
 def send_tg_message_async(text, reply_markup=None):
-    threading.Thread(target=send_tg_message, args=(text, reply_markup), daemon=True).start()
+    """Безопасная отправка логов без блокировки основного сканера"""
+    try:
+        t = threading.Thread(target=send_tg_message, args=(text, reply_markup), daemon=True)
+        t.start()
+    except Exception as e:
+        print(f"⚠️ [ASYNC TG ERROR] Ошибка запуска потока TG: {e}")
 
 def update_tg_message(message_id, text, reply_markup=None):
     if not message_id:
@@ -89,7 +95,7 @@ def update_tg_message(message_id, text, reply_markup=None):
     if reply_markup:
         payload["reply_markup"] = json.dumps(reply_markup)
     try:
-        requests.post(url, json=payload, timeout=3)
+        requests.post(url, json=payload, timeout=2)
     except Exception:
         pass
 
