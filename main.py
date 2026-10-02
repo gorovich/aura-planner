@@ -21,7 +21,7 @@ BYBIT_API_SECRET = os.getenv("BYBIT_API_SECRET", "")
 
 # ==================== НАСТРОЙКИ СТРАТЕГИИ ====================
 CATEGORY = "linear"            # Фьючерсы USDT (Mainnet)
-DEFAULT_TOP_COINS_LIMIT = 10   # Оптимизировано до TOP-20 для защиты CPU на Render
+DEFAULT_TOP_COINS_LIMIT = 7   # Снижаем нагрузку на сокеты
 DEFAULT_INITIAL_BALANCE = 20.0 # Базовый депозит
 DEFAULT_LEVERAGE = 5           # Кредитное плечо (5x)
 MAX_DRAWDOWN_PCT = 10.0        # Остановка при потере -10%
@@ -333,10 +333,14 @@ class LeverageRealBot:
                     wall_threshold = 250_000 if symbol == "SOLUSDT" else max(100_000, round(turnover * 0.0008, -3))
                     targets[symbol] = wall_threshold
 
-                    if len(targets) >= self.top_coins_limit:
+                    # ЖЕСТКИЙ ЛИМИТ: прерываем цикл сразу по достижении лимита
+                    if len(targets) >= int(self.top_coins_limit):
                         break
 
-                return targets
+                # Принудительный срез на случай, если проскочило больше
+                limited_targets = dict(list(targets.items())[:int(self.top_coins_limit)])
+                return limited_targets
+                
             except Exception:
                 time.sleep(2)
         return {"SOLUSDT": 250000, "XRPUSDT": 100000}
