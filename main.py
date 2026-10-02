@@ -809,6 +809,29 @@ def process_telegram_updates():
                             bot.awaiting_input_action = None
                             continue
 
+                        if msg_text.startswith("/setstats"):
+                            # Пример использования: /setstats 254.82 857 327
+                            try:
+                                parts = msg_text.split()
+                                new_bal = float(parts[1])
+                                new_wins = int(parts[2])
+                                new_losses = int(parts[3])
+                                
+                                bot.current_balance = new_bal
+                                bot.session_start_balance = 20.0  # Или укажите свой стартовый депозит
+                                bot.wins_count = new_wins
+                                bot.losses_count = new_losses
+                                bot._save_state()
+                                
+                                send_tg_message_async(
+                                    f"✅ *Статистика успешно обновлена и сохранена в aura-db!*\n\n"
+                                    f"💳 Баланс: `${bot.current_balance:.2f}`\n"
+                                    f"⚔️ Побед: `{bot.wins_count}` | Поражений: `{bot.losses_count}`"
+                                )
+                            except Exception as e:
+                                send_tg_message_async("⚠️ Ошибка формат команды! Используйте: `/setstats [баланс] [побед] [поражений]`\n\nПример: `/setstats 254.82 857 327`")
+                            continue
+
                         if msg_text in ["/start", "/menu"]:
                             start_msg = (
                                 "⚙️ *ПАНЕЛЬ УПРАВЛЕНИЯ СКАНЕРОМ BYBIT*\n"
