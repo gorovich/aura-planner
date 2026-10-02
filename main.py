@@ -10,7 +10,7 @@ from fastapi import FastAPI
 import uvicorn
 
 # ==================== НАСТРОЙКИ ТЕЛЕГРАМ ====================
-TELEGRAM_BOT_TOKEN = "8528320744:AAHHUFF1NlunIRfQNfPYIgt71zmQbTrb9cs"
+TELEGRAM_BOT_TOKEN = "8828927799:AAGQf8_YwE5rkdLzrPGNnZ2d5zsp4Lrx_qg"
 TELEGRAM_CHAT_ID = "1190982420"
 
 # ==================== НАСТРОЙКИ СТРАТЕГИИ ====================
