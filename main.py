@@ -380,21 +380,31 @@ class LeverageRealBot:
             self.targets = self._get_top_mainnet_symbols()
             self.wall_tracker.clear()
             
-            new_ws = WebSocket(testnet=False, channel_type=CATEGORY, ping_interval=20, ping_timeout=10)
+            # Включаем ping_interval и ping_timeout для стабильности сокета
+            new_ws = WebSocket(
+                testnet=False, 
+                channel_type=CATEGORY, 
+                ping_interval=20, 
+                ping_timeout=10
+            )
             self.ws_client = new_ws
 
             count = 0
-
-            for symbol in self.targets.keys():
+            for symbol in list(self.targets.keys()):
                 try:
-                    new_ws.orderbook_stream(depth=20, symbol=symbol, callback=self.on_orderbook_update)
+                    # Важно: Для Bybit V5 возвращаем валидный depth=50
+                    new_ws.orderbook_stream(depth=50, symbol=symbol, callback=self.on_orderbook_update)
                     new_ws.trade_stream(symbol=symbol, callback=self.on_public_trade_update)
-                    time.sleep(0.15) # Пауза 150 мс между каждой парой для защиты CPU
+                    
+                    count += 1
+                    # Задержка 0.25 сек каждые 2 монеты, чтобы не перегрузить CPU на Render
+                    if count % 2 == 0:
+                        time.sleep(0.25)
                 except Exception as e:
                     print(f"⚠️ Ошибка подписки на {symbol}: {e}")
-                        
+            
             self.last_ws_data_time = time.time()
-            print("✅ [HARD RECONNECT] Сокеты подключены!\n")
+            print(f"✅ [HARD RECONNECT] Успешно подписно {count} пар без перегрузки!\n")
 
     def on_public_trade_update(self, message):
         self.last_ws_data_time = time.time()
