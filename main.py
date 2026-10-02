@@ -393,13 +393,17 @@ class LeveragePaperBot:
         if is_bad:
             self.user_blacklist.add(symbol)
             self._save_state()
+            
+            # 🔄 АВТО-РОТАЦИЯ: Подтягиваем свежие монеты взамен забаненной
+            self.targets = self._get_top_mainnet_symbols()
+            
             ban_text = (
                 f"🛡️ *УПРЕЖДАЮЩИЙ АВТО-БАН* — `{symbol}`\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"⚠️ Монета за 30 мин принесла `{losses_cnt}` убытка (PnL: `{sum_pnl:+.2f}%`)\n"
-                f"🚫 Монета забанена для защиты депозита."
+                f"🚫 Монета забанена. Список отслеживаемых пар обновлён!"
             )
-            print(f"\n🛡️ [PREVENTIVE BAN] Монета {symbol} забанена по статистике за 30 минут!\n")
+            print(f"\n🛡️ [PREVENTIVE BAN] Монета {symbol} забанена! Ротация монет выполнена.\n")
             send_tg_message_async(ban_text, reply_markup=self.get_blacklist_keyboard())
             return
 
