@@ -65,7 +65,6 @@ def send_tg_message(text, reply_markup=None):
     return None
 
 def send_tg_message_async(text, reply_markup=None):
-    """Безопасная асинхронная отправка сообщений без блокировки потока сканера"""
     threading.Thread(target=send_tg_message, args=(text, reply_markup), daemon=True).start()
 
 def update_tg_message(message_id, text, reply_markup=None):
@@ -109,7 +108,7 @@ def write_file_log(line_text):
 
 class LeveragePaperBot:
     def __init__(self):
-        print("⚡ Инициализация скоростного сканера с безопасным бан-листом...")
+        print("⚡ Инициализация авто-сканера с системной перезагрузкой сокетов...")
         
         self.lock = threading.Lock()
         
@@ -146,6 +145,7 @@ class LeveragePaperBot:
         self.is_breakeven_set = False
         self.last_close_time = 0
         self.last_log_time = time.time()
+        self.last_ws_data_time = time.time() # Таймер живого WebSocket
         self.last_tg_update_time = 0.0
         self.active_tg_msg_id = None
         self.max_seen_wall = {"symbol": "", "usd": 0}
@@ -223,7 +223,36 @@ class LeveragePaperBot:
             print(f"❌ Ошибка получения тикеров: {e}")
             return {"SOLUSDT": 250000, "XRPUSDT": 100000, "DOGEUSDT": 100000}
 
+    def hard_reconnect_websocket(self):
+        """Полная принудительная пересборка WebSocket при обрывах связи"""
+        with self.lock:
+            print("\n🔄 [HARD RECONNECT] Пересоздание WebSocket сокетов Bybit...")
+            try:
+                if self.ws_client:
+                    self.ws_client._exit() # Принудительно закрываем старое зависшее соединение
+            except Exception:
+                pass
+            
+            time.sleep(1)
+            self.targets = self._get_top_mainnet_symbols()
+            self.wall_tracker.clear()
+            
+            new_ws = WebSocket(testnet=False, channel_type=CATEGORY, ping_interval=20, ping_timeout=10)
+            self.ws_client = new_ws
+
+            for symbol in self.targets.keys():
+                try:
+                    # depth=20 существенно снижает нагрузку на сеть
+                    new_ws.orderbook_stream(depth=20, symbol=symbol, callback=self.on_orderbook_update)
+                    new_ws.trade_stream(symbol=symbol, callback=self.on_public_trade_update)
+                except Exception:
+                    pass
+            
+            self.last_ws_data_time = time.time()
+            print("✅ [HARD RECONNECT] WebSocket успешно переподключен и активен!\n")
+
     def on_public_trade_update(self, message):
+        self.last_ws_data_time = time.time()
         symbol = message.get("topic", "").split(".")[-1]
         if symbol in self.user_blacklist or symbol not in self.targets:
             return
@@ -298,13 +327,12 @@ class LeveragePaperBot:
 
     def on_orderbook_update(self, message):
         now = time.time()
+        self.last_ws_data_time = now # Фиксируем пульс соединения
 
         if self.is_stopped or self.manual_paused or now < self.pause_until:
             return
 
         symbol = message.get("topic", "").split(".")[-1]
-        
-        # ⚡ ИГНОРИРУЕМ МИНУТАЛЬНО МОНЕТЫ ИЗ БАН-ЛИСТА (МНОГОПАТОЧНО И БЕЗ ЗАВИСАНИЙ)
         if symbol in self.user_blacklist or symbol not in self.targets:
             return
 
@@ -446,12 +474,7 @@ class LeveragePaperBot:
         msg_text = self._generate_open_card_text(0)
         print(f"\n⚡ [LOG] {side} {symbol} по {self.entry_price}! Стенка: ${price * wall_size:,.0f}")
         
-        # Асинхронно создаем сообщение карточки
-        threading.Thread(
-            target=self._async_send_open_card, 
-            args=(msg_text,), 
-            daemon=True
-        ).start()
+        threading.Thread(target=self._async_send_open_card, args=(msg_text,), daemon=True).start()
 
     def _async_send_open_card(self, msg_text):
         self.active_tg_msg_id = send_tg_message(msg_text, reply_markup=self.get_main_menu_keyboard())
@@ -520,10 +543,8 @@ class LeveragePaperBot:
             )
             print(f"✅ [LOG] {file_log_entry}")
             
-            # Асинхронная отправка отчета
             send_tg_message_async(msg)
 
-            # 🚨 ПРОВЕРКА НА 5 УБЫТКОВ ПОДРЯД (АБСОЛЮТНО АСИНХРОННАЯ И БЕЗОПАСНАЯ)
             if self.consecutive_losses[closed_symbol] >= MAX_CONSECUTIVE_LOSSES:
                 self.user_blacklist.add(closed_symbol)
                 self._save_state()
@@ -725,12 +746,26 @@ def process_telegram_updates():
                             send_tg_message_async("⚡ *Пауза защиты от шторма сброшена!*", reply_markup=bot.get_main_menu_keyboard())
 
                         elif data == "reboot_bot":
-                            bot.wall_tracker.clear()
-                            send_tg_message_async("🔄 *Состояние и внутренние трекеры сброшены!*", reply_markup=bot.get_main_menu_keyboard())
+                            # Принудительное реальное переподключение WebSocket
+                            threading.Thread(target=bot.hard_reconnect_websocket, daemon=True).start()
+                            send_tg_message_async("🔄 *Сокеты и сокет-соединения с Bybit полностью пересозданы!*", reply_markup=bot.get_main_menu_keyboard())
 
         except Exception:
             time.sleep(2)
         time.sleep(0.5)
+
+def websocket_watchdog_thread(bot_instance):
+    """Поток-наблюдатель (Watchdog) - проверяет 'пульс' тикеров каждые 5 секунд"""
+    while True:
+        try:
+            time.sleep(5)
+            if bot_instance and not bot_instance.manual_paused and not bot_instance.is_stopped:
+                idle_time = time.time() - bot_instance.last_ws_data_time
+                if idle_time > 15: # Если более 15 секунд нет тиков - сокет умер!
+                    print(f"\n🚨 [WATCHDOG] WebSocket застрял! Данных нет {idle_time:.1f} сек. Авто-реанимация...")
+                    bot_instance.hard_reconnect_websocket()
+        except Exception as e:
+            print(f"⚠️ [WATCHDOG ERROR] {e}")
 
 # ==================== ЗАПУСК ДЛЯ ПК / RENDER ====================
 def start_bot_thread():
@@ -739,17 +774,12 @@ def start_bot_thread():
     global_bot_instance = bot
 
     threading.Thread(target=process_telegram_updates, daemon=True).start()
+    threading.Thread(target=websocket_watchdog_thread, args=(bot,), daemon=True).start()
 
-    ws = WebSocket(testnet=False, channel_type=CATEGORY, ping_interval=20, ping_timeout=10)
-    bot.ws_client = ws
+    bot.hard_reconnect_websocket()
 
-    for symbol in bot.targets.keys():
-        ws.orderbook_stream(depth=50, symbol=symbol, callback=bot.on_orderbook_update)
-        ws.trade_stream(symbol=symbol, callback=bot.on_public_trade_update)
-
-    print(f"⚡ Сканер запущен с полностью асинхронными вызовами без блокировок!\n")
-    
-    send_tg_message_async("🚀 *Сканер запущен! Система асинхронных банов и перезагрузок без зависаний активна.*", reply_markup=bot.get_main_menu_keyboard())
+    print(f"⚡ Сканер запущен с автоматическим Watchdog-реаниматором WebSocket!\n")
+    send_tg_message_async("🚀 *Сканер запущен! Поток-наблюдатель Watchdog активен (авто-реаниматор сокетов).*", reply_markup=bot.get_main_menu_keyboard())
 
     while True:
         if bot.is_stopped:
