@@ -343,7 +343,7 @@ class LeverageRealBot:
 
     def hard_reconnect_websocket(self):
         with self.lock:
-            print("\n🔄 [HARD RECONNECT] Плавное пересоздание WebSocket сокетов Bybit...")
+            print("\n🔄 [HARD RECONNECT] Пакетное пересоздание WebSocket сокетов Bybit...")
             try:
                 if self.ws_client:
                     self.ws_client._exit()
@@ -354,21 +354,28 @@ class LeverageRealBot:
             self.targets = self._get_top_mainnet_symbols()
             self.wall_tracker.clear()
             
-            new_ws = WebSocket(testnet=False, channel_type=CATEGORY, ping_interval=20, ping_timeout=10)
+            new_ws = WebSocket(
+                testnet=False, 
+                channel_type=CATEGORY, 
+                ping_interval=20, 
+                ping_timeout=10
+            )
             self.ws_client = new_ws
 
-            count = 0
-            for symbol in list(self.targets.keys()):
+            symbols_list = list(self.targets.keys())
+            
+            # Разбиваем на пакеты по 10 монет (оптимально для Bybit V5 и Render)
+            for i in range(0, len(symbols_list), 10):
+                batch = symbols_list[i:i+10]
                 try:
-                    new_ws.orderbook_stream(depth=50, symbol=symbol, callback=self.on_orderbook_update)
-                    new_ws.trade_stream(symbol=symbol, callback=self.on_public_trade_update)
-                    count += 1
-                    time.sleep(0.2) # Важно: Задержка 200мс между парами для защиты от ping/pong timeout
+                    new_ws.orderbook_stream(depth=50, symbol=batch, callback=self.on_orderbook_update)
+                    new_ws.trade_stream(symbol=batch, callback=self.on_public_trade_update)
+                    time.sleep(0.5)  # Даем процессору отдых между пакетами
                 except Exception as e:
-                    print(f"⚠️ Ошибка подписки на {symbol}: {e}")
+                    print(f"⚠️ Ошибка пакетной подписки: {e}")
             
             self.last_ws_data_time = time.time()
-            print(f"✅ [HARD RECONNECT] Подписано {count} пар без перегрузки сокетов!\n")
+            print(f"✅ [HARD RECONNECT] Успешно подписано {len(symbols_list)} пар пакетами!\n")
 
     def on_public_trade_update(self, message):
         self.last_ws_data_time = time.time()
