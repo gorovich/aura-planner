@@ -52,7 +52,7 @@ MIN_TRADES_PER_MIN = 10        # Минимум 10 сделок в минуту
 REST_5_PCT_SEC = 900           # Слив 5% -> отдых 15 минут
 REST_10_PCT_SEC = 3600         # Слив 10% -> отдых 1 час
 
-LOG_INTERVAL_SEC = 1           
+LOG_INTERVAL_SEC = 15           
 TG_UPDATE_INTERVAL_SEC = 3.0   
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -448,7 +448,8 @@ class LeveragePaperBot:
 
                 if now - self.last_tg_update_time >= TG_UPDATE_INTERVAL_SEC and self.active_tg_msg_id:
                     updated_text = self._generate_open_card_text(elapsed_time)
-                    update_tg_message(self.active_tg_msg_id, updated_text, reply_markup=self.get_main_menu_keyboard())
+                    # 🚀 ЗАПУСКАЕМ ОБНОВЛЕНИЕ КАРТОЧКИ В ОТДЕЛЬНОМ ПОТОКЕ, ЧТОБЫ НЕ ТОРМОЗИТЬ СОКЕТ!
+                    threading.Thread(target=update_tg_message, args=(self.active_tg_msg_id, updated_text, self.get_main_menu_keyboard()), daemon=True).start()
                     self.last_tg_update_time = now
 
                 # ⚡ БЫСТРАЯ ЭВАКУАЦИЯ ЧЕРЕЗ 45 СЕКУНД
@@ -494,6 +495,7 @@ class LeveragePaperBot:
         if current_max > self.max_seen_wall["usd"] or self.max_seen_wall["symbol"] in self.user_blacklist:
             self.max_seen_wall = {"symbol": symbol, "usd": current_max}
 
+# Печатаем пульс строго раз в 15 секунд, чтобы не забивать буфер и сокеты
         if now - self.last_log_time > LOG_INTERVAL_SEC:
             status_str = "ПАУЗА" if self.manual_paused else (f"В ПОЗИЦИИ [{self.active_symbol}]" if self.in_position else f"ПОИСК СТЕНОК (Депо: ${self.current_balance:.2f})")
             print(f"📡 [PULSE] Сканирование {symbol}... - Стенка: ${current_max:,.0f} - {status_str}")
