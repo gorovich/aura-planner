@@ -21,7 +21,7 @@ BYBIT_API_SECRET = os.getenv("BYBIT_API_SECRET", "")
 
 # ==================== НАСТРОЙКИ СТРАТЕГИИ ====================
 CATEGORY = "linear"            # Фьючерсы USDT (Mainnet)
-DEFAULT_TOP_COINS_LIMIT = 20   # Оптимизировано до TOP-20 для защиты CPU на Render
+DEFAULT_TOP_COINS_LIMIT = 10   # Оптимизировано до TOP-20 для защиты CPU на Render
 DEFAULT_INITIAL_BALANCE = 20.0 # Базовый депозит
 DEFAULT_LEVERAGE = 5           # Кредитное плечо (5x)
 MAX_DRAWDOWN_PCT = 10.0        # Остановка при потере -10%
