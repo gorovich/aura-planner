@@ -181,6 +181,8 @@ class LeveragePaperBot:
         except Exception as e:
             print(f"❌ [STATE ERROR] Ошибка сохранения состояния: {e}")
 
+
+#1
     def _load_state(self):
         if os.path.exists(STATE_FILE_PATH):
             try:
@@ -195,15 +197,17 @@ class LeveragePaperBot:
                     self.user_blacklist = set(data.get("user_blacklist", []))
                     print(f"📦 [STATE] Восстановлен баланс: ${self.current_balance:.2f} | Плечо: {self.leverage}x | Бан-лист: {len(self.user_blacklist)} монет")
             except Exception as e:
-                print(f"⚠️ [STATE ERROR] Файл состояния поврежден. Инициализация по умолчанию...")
+                print(f"⚠️ [STATE] Ошибка чтения state.json ({e}). Создаем чистый файл...")
+                self._save_state()
 
     def _get_top_mainnet_symbols(self):
         url = "https://api.bybit.com/v5/market/tickers?category=linear"
         try:
-            res = requests.get(url, timeout=10).json()
-            tickers = res.get("result", {}).get("list", [])
+            res = requests.get(url, timeout=10)
+            data = res.json()
+            tickers = data.get("result", {}).get("list", [])
             
-            usdt_tickers = [t for t in tickers if t["symbol"].endswith("USDT")]
+            usdt_tickers = [t for t in tickers if t.get("symbol", "").endswith("USDT")]
             usdt_tickers.sort(key=lambda x: float(x.get("turnover24h", 0)), reverse=True)
             
             targets = {}
@@ -231,7 +235,8 @@ class LeveragePaperBot:
             return targets
         except Exception as e:
             print(f"❌ Ошибка получения тикеров: {e}")
-            return {"SOLUSDT": 250000, "XRPUSDT": 100000, "DOGEUSDT": 100000}
+            # Резервный динамический список
+            return {"SOLUSDT": 250000, "XRPUSDT": 100000, "DOGEUSDT": 100000, "SUIUSDT": 100000, "APTUSDT": 100000, "NEARUSDT": 100000}
 
     def hard_reconnect_websocket(self):
         with self.lock:
@@ -308,17 +313,18 @@ class LeveragePaperBot:
         return True
 
     # 🛡️ 3. ПРОВЕРКА ЭФФЕКТИВНОСТИ МОНЕТЫ ЗА 30 МИНУТ (УПРЕЖДАЮЩИЙ АВТО-БАН)
+# 🛡️ 3. ПРОВЕРКА ЭФФЕКТИВНОСТИ МОНЕТЫ ЗА 30 МИНУТ (УПРЕЖДАЮЩИЙ АВТО-БАН)
     def is_coin_failing_recently(self, symbol):
         now = time.time()
-        # Фильтруем историю сделок за последние 30 минут
+        # Оставляем только сделки за последние 30 минут
         recent_pnl = [pnl for ts, pnl in self.coin_trade_history[symbol] if ts >= now - PERFORMANCE_WINDOW_SEC]
         
         if len(recent_pnl) >= 3:
             recent_losses = [pnl for pnl in recent_pnl if pnl < 0]
             sum_pnl = sum(recent_pnl)
             
-            # Если 3 убытка за 30 минут ИЛИ просадка по монете > -0.30%
-            if len(recent_losses) >= MAX_LOSSES_IN_WINDOW or sum_pnl <= MAX_WINDOW_PNL_LOSS:
+            # ⚠️ БАНИМ ТОЛЬКО ЕСЛИ Есть 3 убытка И при этом ОБЩИЙ PnL ОТРИЦАТЕЛЬНЫЙ (ниже -0.30%)
+            if len(recent_losses) >= MAX_LOSSES_IN_WINDOW and sum_pnl <= MAX_WINDOW_PNL_LOSS:
                 return True, len(recent_losses), sum_pnl
         return False, 0, 0.0
 
