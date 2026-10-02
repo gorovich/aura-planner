@@ -66,12 +66,11 @@ def send_tg_message(text, reply_markup=None):
     if reply_markup:
         payload["reply_markup"] = json.dumps(reply_markup)
     try:
-        # Жесткий таймаут 3 секунды, чтобы поток никогда не «залипал»
         res = requests.post(url, json=payload, timeout=3).json()
         if res.get("ok"):
             return res.get("result", {}).get("message_id")
     except Exception as e:
-        print(f"❌ [TG ERROR] Не удалось отправить сообщение: {e}")
+        print(f"❌ [TG ERROR] Не удалось отправить лог: {e}")
     return None
 
 def send_tg_message_async(text, reply_markup=None):
@@ -201,9 +200,8 @@ class LeveragePaperBot:
                     self.leverage = data.get("leverage", DEFAULT_LEVERAGE)
                     self.top_coins_limit = data.get("top_coins_limit", DEFAULT_TOP_COINS_LIMIT)
                     self.user_blacklist = set(data.get("user_blacklist", []))
-                    print(f"📦 [STATE] Восстановлен баланс: ${self.current_balance:.2f} | Плечо: {self.leverage}x | Бан-лист: {len(self.user_blacklist)} монет")
-            except Exception as e:
-                print(f"⚠️ [STATE] Ошибка чтения state.json ({e}). Создаем чистый файл...")
+            except Exception:
+                # Если файл битый, мгновенно пересоздаем его без паники и ошибок
                 self._save_state()
 
     def _get_top_mainnet_symbols(self):
