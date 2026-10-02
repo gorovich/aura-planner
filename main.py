@@ -58,17 +58,27 @@ TG_UPDATE_INTERVAL_SEC = 3.0
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 LOG_FILE_PATH = os.path.join(SCRIPT_DIR, "trade_log.txt")
 STATE_FILE_PATH = os.path.join(SCRIPT_DIR, "state.json")
+TMP_STATE_FILE_PATH = os.path.join(SCRIPT_DIR, "state.json.tmp")
 # =====================================================================
 
 def send_tg_message(text, reply_markup=None):
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        return None
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": text, "parse_mode": "Markdown"}
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID, 
+        "text": text, 
+        "parse_mode": "Markdown",
+        "disable_web_page_preview": True
+    }
     if reply_markup:
         payload["reply_markup"] = json.dumps(reply_markup)
     try:
-        res = requests.post(url, json=payload, timeout=3).json()
+        res = requests.post(url, json=payload, timeout=2.5).json()
         if res.get("ok"):
             return res.get("result", {}).get("message_id")
+        else:
+            print(f"❌ [TG API ERROR] {res.get('description')}")
     except Exception as e:
         print(f"❌ [TG ERROR] Не удалось отправить лог: {e}")
     return None
@@ -82,19 +92,20 @@ def send_tg_message_async(text, reply_markup=None):
         print(f"⚠️ [ASYNC TG ERROR] Ошибка запуска потока TG: {e}")
 
 def update_tg_message(message_id, text, reply_markup=None):
-    if not message_id:
+    if not message_id or not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         return
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/editMessageText"
     payload = {
         "chat_id": TELEGRAM_CHAT_ID,
         "message_id": message_id,
         "text": text,
-        "parse_mode": "Markdown"
+        "parse_mode": "Markdown",
+        "disable_web_page_preview": True
     }
     if reply_markup:
         payload["reply_markup"] = json.dumps(reply_markup)
     try:
-        requests.post(url, json=payload, timeout=2)
+        requests.post(url, json=payload, timeout=2.0)
     except Exception:
         pass
 
@@ -140,14 +151,14 @@ class LeveragePaperBot:
         
         self.user_blacklist = set()
         self.consecutive_losses = defaultdict(int)
-        self.coin_trade_history = defaultdict(list) # История PnL по монетам за X минут: [(timestamp, pnl_pct)]
+        self.coin_trade_history = defaultdict(list)
         self.awaiting_input_action = None
         
         self._load_state()
 
         self.ws_client = None
         self.targets = self._get_top_mainnet_symbols()
-        self.trade_history = defaultdict(deque) # Длинная история тиков: [(timestamp, price, volume, side)]
+        self.trade_history = defaultdict(deque)
 
         self.max_allowed_loss = self.session_start_balance * (MAX_DRAWDOWN_PCT / 100)
         
@@ -171,6 +182,7 @@ class LeveragePaperBot:
         self.triggered_5_pct_pause = False
 
     def _save_state(self):
+        """Атомарная запись состояния для предотвращения битых JSON-файлов"""
         data = {
             "current_balance": self.current_balance,
             "session_start_balance": self.session_start_balance,
@@ -181,13 +193,14 @@ class LeveragePaperBot:
             "user_blacklist": list(self.user_blacklist)
         }
         try:
-            with open(STATE_FILE_PATH, "w", encoding="utf-8") as f:
+            with open(TMP_STATE_FILE_PATH, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=4)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(TMP_STATE_FILE_PATH, STATE_FILE_PATH)
         except Exception as e:
             print(f"❌ [STATE ERROR] Ошибка сохранения состояния: {e}")
 
-
-#1
     def _load_state(self):
         if os.path.exists(STATE_FILE_PATH):
             try:
@@ -200,8 +213,9 @@ class LeveragePaperBot:
                     self.leverage = data.get("leverage", DEFAULT_LEVERAGE)
                     self.top_coins_limit = data.get("top_coins_limit", DEFAULT_TOP_COINS_LIMIT)
                     self.user_blacklist = set(data.get("user_blacklist", []))
-            except Exception:
-                # Если файл битый, мгновенно пересоздаем его без паники и ошибок
+                    print(f"📦 [STATE] Восстановлен баланс: ${self.current_balance:.2f} | Плечо: {self.leverage}x | В ЧС: {len(self.user_blacklist)} монет")
+            except Exception as e:
+                print(f"⚠️ [STATE] Ошибка чтения state.json ({e}). Восстанавливаем чистый файл...")
                 self._save_state()
 
     def _get_top_mainnet_symbols(self):
@@ -239,7 +253,6 @@ class LeveragePaperBot:
             return targets
         except Exception as e:
             print(f"❌ Ошибка получения тикеров: {e}")
-            # Резервный динамический список
             return {"SOLUSDT": 250000, "XRPUSDT": 100000, "DOGEUSDT": 100000, "SUIUSDT": 100000, "APTUSDT": 100000, "NEARUSDT": 100000}
 
     def hard_reconnect_websocket(self):
@@ -278,19 +291,16 @@ class LeveragePaperBot:
         for tr in trades:
             price = float(tr.get("p", 0))
             vol = float(tr.get("v", 0))
-            side = tr.get("S", "") # Buy или Sell
+            side = tr.get("S", "")
             self.trade_history[symbol].append((now, price, vol, side))
 
-        # Очищаем историю старее 15 минут (для VWAP)
         while self.trade_history[symbol] and self.trade_history[symbol][0][0] < now - VWAP_WINDOW_SEC:
             self.trade_history[symbol].popleft()
 
     def get_recent_trade_count(self, symbol):
         now = time.time()
-        count = sum(1 for tr in self.trade_history[symbol] if tr[0] >= now - 60)
-        return count
+        return sum(1 for tr in self.trade_history[symbol] if tr[0] >= now - 60)
 
-    # 📊 1. РАСЧЕТ VWAP ЗА ПОСЛЕДНИЕ 15 МИНУТ (МИКРО-ТРЕНД)
     def calculate_vwap_15m(self, symbol):
         now = time.time()
         pv_sum = 0.0
@@ -301,7 +311,6 @@ class LeveragePaperBot:
                 vol_sum += vol
         return (pv_sum / vol_sum) if vol_sum > 0 else None
 
-    # ⚡ 2. АНАЛИЗ ДЕЛЬТЫ ЛЕНТЫ ЗА 10 СЕКУНД (АГРЕССИЯ МАРКЕТ-ОРДЕРОВ)
     def check_tape_aggressors_usd(self, symbol, side_to_open, wall_size_usd):
         now = time.time()
         opposite_side = "Sell" if side_to_open == "Buy" else "Buy"
@@ -311,23 +320,18 @@ class LeveragePaperBot:
             if ts >= now - TAPE_DELTA_WINDOW_SEC and side == opposite_side:
                 aggressor_vol_usd += price * vol
                 
-        # Если объем агрессивного продавца превышает 30% от размера стенки — вход блокируется
         if aggressor_vol_usd > (wall_size_usd * MAX_IMBALANCE_RATIO):
             return False
         return True
 
-    # 🛡️ 3. ПРОВЕРКА ЭФФЕКТИВНОСТИ МОНЕТЫ ЗА 30 МИНУТ (УПРЕЖДАЮЩИЙ АВТО-БАН)
-# 🛡️ 3. ПРОВЕРКА ЭФФЕКТИВНОСТИ МОНЕТЫ ЗА 30 МИНУТ (УПРЕЖДАЮЩИЙ АВТО-БАН)
     def is_coin_failing_recently(self, symbol):
         now = time.time()
-        # Оставляем только сделки за последние 30 минут
         recent_pnl = [pnl for ts, pnl in self.coin_trade_history[symbol] if ts >= now - PERFORMANCE_WINDOW_SEC]
         
         if len(recent_pnl) >= 3:
             recent_losses = [pnl for pnl in recent_pnl if pnl < 0]
             sum_pnl = sum(recent_pnl)
             
-            # ⚠️ БАНИМ ТОЛЬКО ЕСЛИ Есть 3 убытка И при этом ОБЩИЙ PnL ОТРИЦАТЕЛЬНЫЙ (ниже -0.30%)
             if len(recent_losses) >= MAX_LOSSES_IN_WINDOW and sum_pnl <= MAX_WINDOW_PNL_LOSS:
                 return True, len(recent_losses), sum_pnl
         return False, 0, 0.0
@@ -398,13 +402,10 @@ class LeveragePaperBot:
         if symbol in self.user_blacklist or symbol not in self.targets:
             return
 
-        # 🛡️ ПРОВЕРКА ЭФФЕКТИВНОСТИ МОНЕТЫ ЗА 30 МИНУТ
         is_bad, losses_cnt, sum_pnl = self.is_coin_failing_recently(symbol)
         if is_bad:
             self.user_blacklist.add(symbol)
             self._save_state()
-            
-            # 🔄 АВТО-РОТАЦИЯ: Подтягиваем свежие монеты взамен забаненной
             self.targets = self._get_top_mainnet_symbols()
             
             ban_text = (
@@ -427,7 +428,6 @@ class LeveragePaperBot:
         best_bid = max(bids.keys())
         best_ask = min(asks.keys())
 
-        # 1. КОНТРОЛЬ ПОЗИЦИИ
         if self.in_position:
             if self.active_symbol == symbol:
                 current_wall_map = bids if self.position_side == "Buy" else asks
@@ -448,11 +448,9 @@ class LeveragePaperBot:
 
                 if now - self.last_tg_update_time >= TG_UPDATE_INTERVAL_SEC and self.active_tg_msg_id:
                     updated_text = self._generate_open_card_text(elapsed_time)
-                    # 🚀 ЗАПУСКАЕМ ОБНОВЛЕНИЕ КАРТОЧКИ В ОТДЕЛЬНОМ ПОТОКЕ, ЧТОБЫ НЕ ТОРМОЗИТЬ СОКЕТ!
                     threading.Thread(target=update_tg_message, args=(self.active_tg_msg_id, updated_text, self.get_main_menu_keyboard()), daemon=True).start()
                     self.last_tg_update_time = now
 
-                # ⚡ БЫСТРАЯ ЭВАКУАЦИЯ ЧЕРЕЗ 45 СЕКУНД
                 if elapsed_time >= POSITION_TIMEOUT_SEC:
                     if current_pnl_pct >= 0.15:
                         self.close_paper_position("Быстрый сброс в профит (45 сек)", current_price)
@@ -495,13 +493,11 @@ class LeveragePaperBot:
         if current_max > self.max_seen_wall["usd"] or self.max_seen_wall["symbol"] in self.user_blacklist:
             self.max_seen_wall = {"symbol": symbol, "usd": current_max}
 
-# Печатаем пульс строго раз в 15 секунд, чтобы не забивать буфер и сокеты
         if now - self.last_log_time > LOG_INTERVAL_SEC:
             status_str = "ПАУЗА" if self.manual_paused else (f"В ПОЗИЦИИ [{self.active_symbol}]" if self.in_position else f"ПОИСК СТЕНОК (Депо: ${self.current_balance:.2f})")
             print(f"📡 [PULSE] Сканирование {symbol}... - Стенка: ${current_max:,.0f} - {status_str}")
             self.last_log_time = now
 
-        # 3. ПОИСК ВХОДА С УМНЫМИ ФИЛЬТРАМИ
         if now - self.last_close_time < COOLDOWN_SEC:
             return
 
@@ -516,12 +512,8 @@ class LeveragePaperBot:
                 if dist_pct <= PROXIMITY_PCT:
                     if recent_trades < MIN_TRADES_PER_MIN:
                         continue
-                    
-                    # 📈 ТРЕКЕР ТРЕНДА VWAP: Берем LONG только если цена ВЫШЕ или у VWAP (Бычий тренд)
                     if vwap_15m and best_bid < vwap_15m:
                         continue
-
-                    # ⚡ АНАЛИЗ ДЕЛЬТЫ ЛЕНТЫ: Нет ли агрессивных продаж против стенки
                     if not self.check_tape_aggressors_usd(symbol, "Buy", wall_usd):
                         continue
 
@@ -541,12 +533,8 @@ class LeveragePaperBot:
                 if dist_pct <= PROXIMITY_PCT:
                     if recent_trades < MIN_TRADES_PER_MIN:
                         continue
-                    
-                    # 📉 ТРЕКЕР ТРЕНДА VWAP: Берем SHORT только если цена НИЖЕ или у VWAP (Медвежий тренд)
                     if vwap_15m and best_ask > vwap_15m:
                         continue
-
-                    # ⚡ АНАЛИЗ ДЕЛЬТЫ ЛЕНТЫ: Нет ли агрессивных покупок против стенки
                     if not self.check_tape_aggressors_usd(symbol, "Sell", wall_usd):
                         continue
 
@@ -605,7 +593,6 @@ class LeveragePaperBot:
             self.current_balance += net_usd_pnl
             closed_symbol = self.active_symbol
             
-            # Сохраняем результат сделки в историю за X минут
             self.coin_trade_history[closed_symbol].append((now, net_pnl_pct))
 
             if net_pnl_pct > 0:
@@ -693,6 +680,15 @@ global_bot_instance = None
 
 def process_telegram_updates():
     offset = 0
+    # Сбрасываем старые накопившиеся апдейты при старте
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates?offset=-1"
+        res = requests.get(url, timeout=5).json()
+        if res.get("ok") and res.get("result"):
+            offset = res["result"][-1]["update_id"] + 1
+    except Exception:
+        pass
+
     while True:
         try:
             url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates?offset={offset}&timeout=10"
@@ -724,7 +720,6 @@ def process_telegram_updates():
                                 sym += "USDT"
                             if sym in bot.user_blacklist:
                                 bot.user_blacklist.remove(sym)
-                                # 🧹 СБРАСЫВАЕМ ИСТОРИЮ И СЧЕТЧИКИ УБЫТКОВ ПРИ РАЗБАНЕ
                                 bot.consecutive_losses[sym] = 0
                                 bot.coin_trade_history[sym] = []
                                 bot._save_state()
@@ -765,7 +760,10 @@ def process_telegram_updates():
                         cq_id = cq["id"]
                         data = cq.get("data")
 
-                        requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/answerCallbackQuery", json={"callback_query_id": cq_id})
+                        try:
+                            requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/answerCallbackQuery", json={"callback_query_id": cq_id}, timeout=2)
+                        except Exception:
+                            pass
 
                         if data == "main_menu":
                             bot.awaiting_input_action = None
@@ -859,7 +857,8 @@ def process_telegram_updates():
                             threading.Thread(target=bot.hard_reconnect_websocket, daemon=True).start()
                             send_tg_message_async("🔄 *Сокеты и сокет-соединения с Bybit полностью пересозданы!*", reply_markup=bot.get_main_menu_keyboard())
 
-        except Exception:
+        except Exception as e:
+            print(f"⚠️ [TG POLL ERROR] {e}")
             time.sleep(2)
         time.sleep(0.5)
 
