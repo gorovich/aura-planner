@@ -22,7 +22,7 @@ BYBIT_API_SECRET = os.getenv("BYBIT_API_SECRET", "")
 
 # ==================== НАСТРОЙКИ СТРАТЕГИИ ====================
 CATEGORY = "linear"            # Фьючерсы USDT (Mainnet)
-DEFAULT_TOP_COINS_LIMIT = 40   # TOP-40 активных альтов
+DEFAULT_TOP_COINS_LIMIT = 30   # TOP-40 активных альтов
 DEFAULT_INITIAL_BALANCE = 20.0 # Базовый депозит
 DEFAULT_LEVERAGE = 5           # Кредитное плечо (5x)
 MAX_DRAWDOWN_PCT = 10.0        # Остановка при потере -10%
@@ -384,16 +384,15 @@ class LeverageRealBot:
             self.ws_client = new_ws
 
             count = 0
+
             for symbol in self.targets.keys():
                 try:
-                    new_ws.orderbook_stream(depth=50, symbol=symbol, callback=self.on_orderbook_update)
+                    new_ws.orderbook_stream(depth=20, symbol=symbol, callback=self.on_orderbook_update)
                     new_ws.trade_stream(symbol=symbol, callback=self.on_public_trade_update)
-                    count += 1
-                    if count % 10 == 0:
-                        time.sleep(0.3)
+                    time.sleep(0.15) # Пауза 150 мс между каждой парой для защиты CPU
                 except Exception as e:
-                    pass
-            
+                    print(f"⚠️ Ошибка подписки на {symbol}: {e}")
+                        
             self.last_ws_data_time = time.time()
             print("✅ [HARD RECONNECT] Сокеты подключены!\n")
 
