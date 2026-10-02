@@ -53,18 +53,61 @@ REST_5_PCT_SEC = 900           # Слив 5% -> отдых 15 минут
 REST_10_PCT_SEC = 3600         # Слив 10% -> отдых 1 час
 
 LOG_INTERVAL_SEC = 15           
-TG_UPDATE_INTERVAL_SEC = 3.0   
+TG_UPDATE_INTERVAL_SEC = 3.5   # Увеличено для предотвращения лимита Telegram
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 LOG_FILE_PATH = os.path.join(SCRIPT_DIR, "trade_log.txt")
 STATE_FILE_PATH = os.path.join(SCRIPT_DIR, "state.json")
 TMP_STATE_FILE_PATH = os.path.join(SCRIPT_DIR, "state.json.tmp")
-# =====================================================================
 
-def send_tg_message(text, reply_markup=None):
+# ==================== ОЧЕРЕДЬ ТЕЛЕГРАМ С ЗАЩИТОЙ ОТ БАНОВ ====================
+tg_queue = deque()
+tg_last_sent_time = 0.0
+
+def tg_worker():
+    global tg_last_sent_time
+    while True:
+        try:
+            if tg_queue:
+                now = time.time()
+                # Защита от лимита TG (не чаще 1 сообщения в 1.05 сек в 1 чат)
+                if now - tg_last_sent_time >= 1.05:
+                    task = tg_queue.popleft()
+                    action = task.get("action")
+                    payload = task.get("payload")
+                    
+                    if action == "send":
+                        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+                        res = requests.post(url, json=payload, timeout=5).json()
+                        if res.get("ok"):
+                            tg_last_sent_time = time.time()
+                            cb = task.get("callback")
+                            if cb:
+                                cb(res.get("result", {}).get("message_id"))
+                        elif res.get("error_code") == 429:
+                            retry_after = res.get("parameters", {}).get("retry_after", 5)
+                            time.sleep(retry_after)
+                            tg_queue.appendleft(task)
+                            
+                    elif action == "update":
+                        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/editMessageText"
+                        res = requests.post(url, json=payload, timeout=5).json()
+                        if res.get("ok"):
+                            tg_last_sent_time = time.time()
+                        elif res.get("error_code") == 429:
+                            retry_after = res.get("parameters", {}).get("retry_after", 5)
+                            time.sleep(retry_after)
+
+            time.sleep(0.1)
+        except Exception as e:
+            print(f"⚠️ [TG WORKER ERROR] {e}")
+            time.sleep(2)
+
+threading.Thread(target=tg_worker, daemon=True).start()
+
+def send_tg_message_async(text, reply_markup=None, callback=None):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        return None
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        return
     payload = {
         "chat_id": TELEGRAM_CHAT_ID, 
         "text": text, 
@@ -73,28 +116,11 @@ def send_tg_message(text, reply_markup=None):
     }
     if reply_markup:
         payload["reply_markup"] = json.dumps(reply_markup)
-    try:
-        res = requests.post(url, json=payload, timeout=2.5).json()
-        if res.get("ok"):
-            return res.get("result", {}).get("message_id")
-        else:
-            print(f"❌ [TG API ERROR] {res.get('description')}")
-    except Exception as e:
-        print(f"❌ [TG ERROR] Не удалось отправить лог: {e}")
-    return None
+    tg_queue.append({"action": "send", "payload": payload, "callback": callback})
 
-def send_tg_message_async(text, reply_markup=None):
-    """Безопасная отправка логов без блокировки основного сканера"""
-    try:
-        t = threading.Thread(target=send_tg_message, args=(text, reply_markup), daemon=True)
-        t.start()
-    except Exception as e:
-        print(f"⚠️ [ASYNC TG ERROR] Ошибка запуска потока TG: {e}")
-
-def update_tg_message(message_id, text, reply_markup=None):
+def update_tg_message_async(message_id, text, reply_markup=None):
     if not message_id or not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         return
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/editMessageText"
     payload = {
         "chat_id": TELEGRAM_CHAT_ID,
         "message_id": message_id,
@@ -104,10 +130,7 @@ def update_tg_message(message_id, text, reply_markup=None):
     }
     if reply_markup:
         payload["reply_markup"] = json.dumps(reply_markup)
-    try:
-        requests.post(url, json=payload, timeout=2.0)
-    except Exception:
-        pass
+    tg_queue.append({"action": "update", "payload": payload})
 
 def make_progress_bar(elapsed_sec, total_sec=45, length=10):
     pct = min(1.0, elapsed_sec / total_sec)
@@ -133,7 +156,7 @@ def write_file_log(line_text):
 
 class LeveragePaperBot:
     def __init__(self):
-        print("⚡ Инициализация умного сканера с анализом за X минут и VWAP...")
+        print("⚡ Инициализация умного сканера с защитой 24/7...")
         
         self.lock = threading.Lock()
         
@@ -182,7 +205,6 @@ class LeveragePaperBot:
         self.triggered_5_pct_pause = False
 
     def _save_state(self):
-        """Атомарная запись состояния для предотвращения битых JSON-файлов"""
         data = {
             "current_balance": self.current_balance,
             "session_start_balance": self.session_start_balance,
@@ -215,71 +237,81 @@ class LeveragePaperBot:
                     self.user_blacklist = set(data.get("user_blacklist", []))
                     print(f"📦 [STATE] Восстановлен баланс: ${self.current_balance:.2f} | Плечо: {self.leverage}x | В ЧС: {len(self.user_blacklist)} монет")
             except Exception as e:
-                print(f"⚠️ [STATE] Ошибка чтения state.json ({e}). Восстанавливаем чистый файл...")
+                print(f"⚠️️ [STATE] Ошибка чтения state.json ({e}). Восстанавливаем чистый файл...")
                 self._save_state()
 
     def _get_top_mainnet_symbols(self):
         url = "https://api.bybit.com/v5/market/tickers?category=linear"
-        try:
-            res = requests.get(url, timeout=10)
-            data = res.json()
-            tickers = data.get("result", {}).get("list", [])
-            
-            usdt_tickers = [t for t in tickers if t.get("symbol", "").endswith("USDT")]
-            usdt_tickers.sort(key=lambda x: float(x.get("turnover24h", 0)), reverse=True)
-            
-            targets = {}
-            EXPLICIT_BAN = ["BTCUSDT", "ETHUSDT", "USDCUSDT", "USDEUSDT", "FDUSDUSDT"]
-
-            for t in usdt_tickers:
-                symbol = t["symbol"]
+        for attempt in range(3):
+            try:
+                res = requests.get(url, timeout=10)
+                if res.status_code == 429:
+                    time.sleep(5)
+                    continue
+                data = res.json()
+                tickers = data.get("result", {}).get("list", [])
                 
-                if self.in_position and self.active_symbol == symbol:
+                usdt_tickers = [t for t in tickers if t.get("symbol", "").endswith("USDT")]
+                usdt_tickers.sort(key=lambda x: float(x.get("turnover24h", 0)), reverse=True)
+                
+                targets = {}
+                EXPLICIT_BAN = ["BTCUSDT", "ETHUSDT", "USDCUSDT", "USDEUSDT", "FDUSDUSDT"]
+
+                for t in usdt_tickers:
+                    symbol = t["symbol"]
+                    
+                    if self.in_position and self.active_symbol == symbol:
+                        turnover = float(t.get("turnover24h", 0))
+                        wall_threshold = 250_000 if symbol == "SOLUSDT" else max(100_000, round(turnover * 0.0008, -3))
+                        targets[symbol] = wall_threshold
+                        continue
+
+                    if symbol in EXPLICIT_BAN or symbol in self.user_blacklist or "XAU" in symbol or "XAG" in symbol or "GOLD" in symbol:
+                        continue  
+
                     turnover = float(t.get("turnover24h", 0))
                     wall_threshold = 250_000 if symbol == "SOLUSDT" else max(100_000, round(turnover * 0.0008, -3))
                     targets[symbol] = wall_threshold
-                    continue
 
-                if symbol in EXPLICIT_BAN or symbol in self.user_blacklist or "XAU" in symbol or "XAG" in symbol or "GOLD" in symbol:
-                    continue  
+                    if len(targets) >= self.top_coins_limit:
+                        break
 
-                turnover = float(t.get("turnover24h", 0))
-                wall_threshold = 250_000 if symbol == "SOLUSDT" else max(100_000, round(turnover * 0.0008, -3))
-                targets[symbol] = wall_threshold
-
-                if len(targets) >= self.top_coins_limit:
-                    break
-
-            return targets
-        except Exception as e:
-            print(f"❌ Ошибка получения тикеров: {e}")
-            return {"SOLUSDT": 250000, "XRPUSDT": 100000, "DOGEUSDT": 100000, "SUIUSDT": 100000, "APTUSDT": 100000, "NEARUSDT": 100000}
+                return targets
+            except Exception as e:
+                print(f"❌ Попытка {attempt+1}/3 получения тикеров не удалась: {e}")
+                time.sleep(2)
+        return {"SOLUSDT": 250000, "XRPUSDT": 100000, "DOGEUSDT": 100000, "SUIUSDT": 100000, "APTUSDT": 100000, "NEARUSDT": 100000}
 
     def hard_reconnect_websocket(self):
         with self.lock:
-            print("\n🔄 [HARD RECONNECT] Пересоздание WebSocket сокетов Bybit...")
+            print("\n🔄 [HARD RECONNECT] Плавное пересоздание WebSocket сокетов Bybit...")
             try:
                 if self.ws_client:
                     self.ws_client._exit()
             except Exception:
                 pass
             
-            time.sleep(1)
+            time.sleep(2)
             self.targets = self._get_top_mainnet_symbols()
             self.wall_tracker.clear()
             
             new_ws = WebSocket(testnet=False, channel_type=CATEGORY, ping_interval=20, ping_timeout=10)
             self.ws_client = new_ws
 
+            # Защита Bybit Rate limit: микро-паузы при подписке пакетами
+            count = 0
             for symbol in self.targets.keys():
                 try:
                     new_ws.orderbook_stream(depth=50, symbol=symbol, callback=self.on_orderbook_update)
                     new_ws.trade_stream(symbol=symbol, callback=self.on_public_trade_update)
+                    count += 1
+                    if count % 10 == 0:
+                        time.sleep(0.3)
                 except Exception as e:
                     print(f"⚠️ Ошибка подписки на {symbol}: {e}")
             
             self.last_ws_data_time = time.time()
-            print("✅ [HARD RECONNECT] WebSocket успешно переподключен и активен!\n")
+            print("✅ [HARD RECONNECT] WebSocket успешно подключен без лимитных нарушений!\n")
 
     def on_public_trade_update(self, message):
         self.last_ws_data_time = time.time()
@@ -411,7 +443,7 @@ class LeveragePaperBot:
             ban_text = (
                 f"🛡️ *УПРЕЖДАЮЩИЙ АВТО-БАН* — `{symbol}`\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"⚠️ Монета за 30 мин принесла `{losses_cnt}` убытка (PnL: `{sum_pnl:+.2f}%`)\n"
+                f"⚠️️ Монета за 30 мин принесла `{losses_cnt}` убытка (PnL: `{sum_pnl:+.2f}%`)\n"
                 f"🚫 Монета забанена. Список отслеживаемых пар обновлён!"
             )
             print(f"\n🛡️ [PREVENTIVE BAN] Монета {symbol} забанена! Ротация монет выполнена.\n")
@@ -448,7 +480,7 @@ class LeveragePaperBot:
 
                 if now - self.last_tg_update_time >= TG_UPDATE_INTERVAL_SEC and self.active_tg_msg_id:
                     updated_text = self._generate_open_card_text(elapsed_time)
-                    threading.Thread(target=update_tg_message, args=(self.active_tg_msg_id, updated_text, self.get_main_menu_keyboard()), daemon=True).start()
+                    update_tg_message_async(self.active_tg_msg_id, updated_text, self.get_main_menu_keyboard())
                     self.last_tg_update_time = now
 
                 if elapsed_time >= POSITION_TIMEOUT_SEC:
@@ -546,6 +578,9 @@ class LeveragePaperBot:
                         self.wall_tracker.clear()
                         return
 
+    def set_active_msg_id(self, msg_id):
+        self.active_tg_msg_id = msg_id
+
     def open_paper_position(self, symbol, side, price, wall_size):
         self.in_position = True
         self.active_symbol = symbol
@@ -566,10 +601,7 @@ class LeveragePaperBot:
         msg_text = self._generate_open_card_text(0)
         print(f"\n⚡ [LOG] {side} {symbol} по {self.entry_price}! Стенка: ${price * wall_size:,.0f}")
         
-        threading.Thread(target=self._async_send_open_card, args=(msg_text,), daemon=True).start()
-
-    def _async_send_open_card(self, msg_text):
-        self.active_tg_msg_id = send_tg_message(msg_text, reply_markup=self.get_main_menu_keyboard())
+        send_tg_message_async(msg_text, reply_markup=self.get_main_menu_keyboard(), callback=self.set_active_msg_id)
 
     def close_paper_position(self, reason, close_price):
         with self.lock:
@@ -680,7 +712,6 @@ global_bot_instance = None
 
 def process_telegram_updates():
     offset = 0
-    # Сбрасываем старые накопившиеся апдейты при старте
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates?offset=-1"
         res = requests.get(url, timeout=5).json()
@@ -829,7 +860,7 @@ def process_telegram_updates():
 
                         elif data == "toggle_pause":
                             bot.manual_paused = not bot.manual_paused
-                            st = "⏸️ *Сканер поставлен на паузу.*" if bot.manual_paused else "▶️ *Сканер возобновил работу!*"
+                            st = "⏸️ *Сканер поставлен на паузу.*" if bot.manual_paused else "▶️️ *Сканер возобновил работу!*"
                             send_tg_message_async(st, reply_markup=bot.get_main_menu_keyboard())
 
                         elif data == "show_stats":
@@ -857,9 +888,11 @@ def process_telegram_updates():
                             threading.Thread(target=bot.hard_reconnect_websocket, daemon=True).start()
                             send_tg_message_async("🔄 *Сокеты и сокет-соединения с Bybit полностью пересозданы!*", reply_markup=bot.get_main_menu_keyboard())
 
+            elif res.get("error_code") == 429:
+                time.sleep(5)
         except Exception as e:
-            print(f"⚠️ [TG POLL ERROR] {e}")
-            time.sleep(2)
+            print(f"⚠️️ [TG POLL ERROR] {e}")
+            time.sleep(3)
         time.sleep(0.5)
 
 def websocket_watchdog_thread(bot_instance):
@@ -873,6 +906,7 @@ def websocket_watchdog_thread(bot_instance):
                     bot_instance.hard_reconnect_websocket()
         except Exception as e:
             print(f"⚠️ [WATCHDOG ERROR] {e}")
+            time.sleep(5)
 
 # ==================== ЗАПУСК ДЛЯ ПК / RENDER ====================
 def start_bot_thread():
@@ -885,8 +919,8 @@ def start_bot_thread():
 
     bot.hard_reconnect_websocket()
 
-    print(f"⚡ Сканер запущен с умной аналитикой (VWAP + Дельта ленты + Упреждающий бан за 30 мин)!\n")
-    send_tg_message_async("🚀 *Сканер запущен! VWAP-трекер, фильтр дельты и упреждающий бан за 30 минут активны.*", reply_markup=bot.get_main_menu_keyboard())
+    print(f"⚡ Сканер запущен 24/7 с умной аналитикой и защитой от банов!\n")
+    send_tg_message_async("🚀 *Сканер запущен 24/7! VWAP-трекер, защита от банов и очереди логов активны.*", reply_markup=bot.get_main_menu_keyboard())
 
     while True:
         if bot.is_stopped:
