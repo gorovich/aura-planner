@@ -3,6 +3,7 @@ import time
 import json
 import threading
 import requests
+import psycopg2
 from datetime import datetime
 from collections import defaultdict, deque
 from pybit.unified_trading import WebSocket
@@ -12,6 +13,9 @@ import uvicorn
 # ==================== НАСТРОЙКИ ТЕЛЕГРАМ ====================
 TELEGRAM_BOT_TOKEN = "8828927799:AAGQf8_YwE5rkdLzrPGNnZ2d5zsp4Lrx_qg"
 TELEGRAM_CHAT_ID = "1190982420"
+
+# ==================== НАСТРОЙКИ POSTGRESQL (aura-db) ====================
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 # ==================== НАСТРОЙКИ СТРАТЕГИИ ====================
 CATEGORY = "linear"            # Фьючерсы USDT (Mainnet)
@@ -57,8 +61,6 @@ TG_UPDATE_INTERVAL_SEC = 3.5   # Увеличено для предотвращ�
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 LOG_FILE_PATH = os.path.join(SCRIPT_DIR, "trade_log.txt")
-STATE_FILE_PATH = os.path.join(SCRIPT_DIR, "state.json")
-TMP_STATE_FILE_PATH = os.path.join(SCRIPT_DIR, "state.json.tmp")
 
 # ==================== ОЧЕРЕДЬ ТЕЛЕГРАМ С ЗАЩИТОЙ ОТ БАНОВ ====================
 tg_queue = deque()
@@ -70,7 +72,6 @@ def tg_worker():
         try:
             if tg_queue:
                 now = time.time()
-                # Защита от лимита TG (не чаще 1 сообщения в 1.05 сек в 1 чат)
                 if now - tg_last_sent_time >= 1.05:
                     task = tg_queue.popleft()
                     action = task.get("action")
@@ -156,7 +157,7 @@ def write_file_log(line_text):
 
 class LeveragePaperBot:
     def __init__(self):
-        print("⚡ Инициализация умного сканера с защитой 24/7...")
+        print("⚡ Инициализация умного сканера с защитой 24/7 и интеграцией PostgreSQL...")
         
         self.lock = threading.Lock()
         
@@ -177,6 +178,7 @@ class LeveragePaperBot:
         self.coin_trade_history = defaultdict(list)
         self.awaiting_input_action = None
         
+        self._init_db()
         self._load_state()
 
         self.ws_client = None
@@ -204,7 +206,35 @@ class LeveragePaperBot:
         self.pause_until = 0
         self.triggered_5_pct_pause = False
 
+    def _get_db_connection(self):
+        """Безопасное подключение к PostgreSQL"""
+        if not DATABASE_URL:
+            return None
+        return psycopg2.connect(DATABASE_URL)
+
+    def _init_db(self):
+        """Создание таблицы состояния в aura-db при первом запуске"""
+        try:
+            conn = self._get_db_connection()
+            if not conn:
+                print("⚠️ DATABASE_URL не найден, бот работает во временной памяти.")
+                return
+            cur = conn.cursor()
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS bot_state (
+                    id INT PRIMARY KEY,
+                    data JSONB NOT NULL
+                );
+            """)
+            conn.commit()
+            cur.close()
+            conn.close()
+            print("🗄 [POSTGRES] Таблица 'bot_state' успешно проверена/создана в aura-db!")
+        except Exception as e:
+            print(f"❌ [POSTGRES ERROR] Ошибка инициализации таблицы БД: {e}")
+
     def _save_state(self):
+        """Сохранение состояния бота в PostgreSQL (aura-db)"""
         data = {
             "current_balance": self.current_balance,
             "session_start_balance": self.session_start_balance,
@@ -215,30 +245,50 @@ class LeveragePaperBot:
             "user_blacklist": list(self.user_blacklist)
         }
         try:
-            with open(TMP_STATE_FILE_PATH, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=4)
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(TMP_STATE_FILE_PATH, STATE_FILE_PATH)
+            conn = self._get_db_connection()
+            if not conn:
+                return
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO bot_state (id, data) 
+                VALUES (1, %s) 
+                ON CONFLICT (id) 
+                DO UPDATE SET data = EXCLUDED.data;
+            """, (json.dumps(data),))
+            conn.commit()
+            cur.close()
+            conn.close()
+            print("☁️ [POSTGRES] Состояние успешно сохранено в aura-db!")
         except Exception as e:
-            print(f"❌ [STATE ERROR] Ошибка сохранения состояния: {e}")
+            print(f"❌ [POSTGRES ERROR] Ошибка сохранения состояния: {e}")
 
     def _load_state(self):
-        if os.path.exists(STATE_FILE_PATH):
-            try:
-                with open(STATE_FILE_PATH, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    self.current_balance = data.get("current_balance", DEFAULT_INITIAL_BALANCE)
-                    self.session_start_balance = data.get("session_start_balance", DEFAULT_INITIAL_BALANCE)
-                    self.wins_count = data.get("wins_count", 0)
-                    self.losses_count = data.get("losses_count", 0)
-                    self.leverage = data.get("leverage", DEFAULT_LEVERAGE)
-                    self.top_coins_limit = data.get("top_coins_limit", DEFAULT_TOP_COINS_LIMIT)
-                    self.user_blacklist = set(data.get("user_blacklist", []))
-                    print(f"📦 [STATE] Восстановлен баланс: ${self.current_balance:.2f} | Плечо: {self.leverage}x | В ЧС: {len(self.user_blacklist)} монет")
-            except Exception as e:
-                print(f"⚠️️ [STATE] Ошибка чтения state.json ({e}). Восстанавливаем чистый файл...")
+        """Загрузка состояния бота из PostgreSQL (aura-db)"""
+        try:
+            conn = self._get_db_connection()
+            if not conn:
+                return
+            cur = conn.cursor()
+            cur.execute("SELECT data FROM bot_state WHERE id = 1;")
+            row = cur.fetchone()
+            cur.close()
+            conn.close()
+
+            if row:
+                data = row[0] if isinstance(row[0], dict) else json.loads(row[0])
+                self.current_balance = data.get("current_balance", DEFAULT_INITIAL_BALANCE)
+                self.session_start_balance = data.get("session_start_balance", DEFAULT_INITIAL_BALANCE)
+                self.wins_count = data.get("wins_count", 0)
+                self.losses_count = data.get("losses_count", 0)
+                self.leverage = data.get("leverage", DEFAULT_LEVERAGE)
+                self.top_coins_limit = data.get("top_coins_limit", DEFAULT_TOP_COINS_LIMIT)
+                self.user_blacklist = set(data.get("user_blacklist", []))
+                print(f"📦 [POSTGRES] Восстановлен баланс из aura-db: ${self.current_balance:.2f} | Плечо: {self.leverage}x | В ЧС: {len(self.user_blacklist)} монет")
+            else:
+                print("ℹ️ [POSTGRES] Первая запись состояния. Создаем начальный конфиг...")
                 self._save_state()
+        except Exception as e:
+            print(f"⚠️ [POSTGRES ERROR] Ошибка чтения из aura-db ({e}). Используем базовые параметры...")
 
     def _get_top_mainnet_symbols(self):
         url = "https://api.bybit.com/v5/market/tickers?category=linear"
@@ -298,7 +348,6 @@ class LeveragePaperBot:
             new_ws = WebSocket(testnet=False, channel_type=CATEGORY, ping_interval=20, ping_timeout=10)
             self.ws_client = new_ws
 
-            # Защита Bybit Rate limit: микро-паузы при подписке пакетами
             count = 0
             for symbol in self.targets.keys():
                 try:
@@ -400,7 +449,7 @@ class LeveragePaperBot:
             "inline_keyboard": [
                 [{"text": "➕ ДОБАВИТЬ В БАН", "callback_data": "add_ban_prompt"}, {"text": "➖ СНЯТЬ ИЗ БАНА", "callback_data": "remove_ban_prompt"}],
                 [{"text": "📋 ПОКАЗАТЬ БАН-ЛИСТ", "callback_data": "show_blacklist"}],
-                [{"text": "◀️ НАЗАД В МЕНЮ", "callback_data": "main_menu"}]
+                [{"text": "◀️️ НАЗАД В МЕНЮ", "callback_data": "main_menu"}]
             ]
         }
 
@@ -443,10 +492,10 @@ class LeveragePaperBot:
             ban_text = (
                 f"🛡️ *УПРЕЖДАЮЩИЙ АВТО-БАН* — `{symbol}`\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"⚠️️ Монета за 30 мин принесла `{losses_cnt}` убытка (PnL: `{sum_pnl:+.2f}%`)\n"
+                f"⚠️ Монета за 30 мин принесла `{losses_cnt}` убытка (PnL: `{sum_pnl:+.2f}%`)\n"
                 f"🚫 Монета забанена. Список отслеживаемых пар обновлён!"
             )
-            print(f"\n🛡️ [PREVENTIVE BAN] Монета {symbol} забанена! Ротация монет выполнена.\n")
+            print(f"\n🛡️️ [PREVENTIVE BAN] Монета {symbol} забанена! Ротация монет выполнена.\n")
             send_tg_message_async(ban_text, reply_markup=self.get_blacklist_keyboard())
             return
 
@@ -860,7 +909,7 @@ def process_telegram_updates():
 
                         elif data == "toggle_pause":
                             bot.manual_paused = not bot.manual_paused
-                            st = "⏸️ *Сканер поставлен на паузу.*" if bot.manual_paused else "▶️️ *Сканер возобновил работу!*"
+                            st = "⏸️ *Сканер поставлен на паузу.*" if bot.manual_paused else "▶ *Сканер возобновил работу!*"
                             send_tg_message_async(st, reply_markup=bot.get_main_menu_keyboard())
 
                         elif data == "show_stats":
@@ -891,7 +940,7 @@ def process_telegram_updates():
             elif res.get("error_code") == 429:
                 time.sleep(5)
         except Exception as e:
-            print(f"⚠️️ [TG POLL ERROR] {e}")
+            print(f"⚠️ [TG POLL ERROR] {e}")
             time.sleep(3)
         time.sleep(0.5)
 
@@ -919,8 +968,8 @@ def start_bot_thread():
 
     bot.hard_reconnect_websocket()
 
-    print(f"⚡ Сканер запущен 24/7 с умной аналитикой и защитой от банов!\n")
-    send_tg_message_async("🚀 *Сканер запущен 24/7! VWAP-трекер, защита от банов и очереди логов активны.*", reply_markup=bot.get_main_menu_keyboard())
+    print(f"⚡ Сканер запущен 24/7 с PostgreSQL (aura-db), умной аналитикой и защитой от банов!\n")
+    send_tg_message_async("🚀 *Сканер запущен 24/7! Хранилище aura-db, VWAP-трекер и очереди логов активны.*", reply_markup=bot.get_main_menu_keyboard())
 
     while True:
         if bot.is_stopped:
