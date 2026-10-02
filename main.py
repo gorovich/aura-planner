@@ -293,7 +293,7 @@ class LeverageRealBot:
                 self.wins_count = data.get("wins_count", 0)
                 self.losses_count = data.get("losses_count", 0)
                 self.leverage = data.get("leverage", DEFAULT_LEVERAGE)
-                self.top_coins_limit = data.get("top_coins_limit", DEFAULT_TOP_COINS_LIMIT)
+               # self.top_coins_limit = data.get("top_coins_limit", DEFAULT_TOP_COINS_LIMIT)
                 self.user_blacklist = set(data.get("user_blacklist", []))
                 print(f"📦 [POSTGRES] Баланс БД: ${self.current_balance:.2f} | Плечо: {self.leverage}x")
             else:
@@ -463,132 +463,135 @@ class LeverageRealBot:
         )
 
     def on_orderbook_update(self, message):
-        now = time.time()
-        self.last_ws_data_time = now
+        try:
+            now = time.time()
+            self.last_ws_data_time = now
 
-        if self.is_stopped or self.manual_paused or now < self.pause_until:
-            return
+            if self.is_stopped or self.manual_paused or now < self.pause_until:
+                return
 
-        symbol = message.get("topic", "").split(".")[-1]
-        if symbol in self.user_blacklist or symbol not in self.targets:
-            return
+            symbol = message.get("topic", "").split(".")[-1]
+            if symbol in self.user_blacklist or symbol not in self.targets:
+                return
 
-        is_bad, losses_cnt, sum_pnl = self.is_coin_failing_recently(symbol)
-        if is_bad:
-            self.user_blacklist.add(symbol)
-            self._save_state()
-            self.targets = self._get_top_mainnet_symbols()
-            send_tg_message_async(f"🛡️ `{symbol}` добавлена в бан за убытки.")
-            return
+            is_bad, losses_cnt, sum_pnl = self.is_coin_failing_recently(symbol)
+            if is_bad:
+                self.user_blacklist.add(symbol)
+                self._save_state()
+                self.targets = self._get_top_mainnet_symbols()
+                send_tg_message_async(f"🛡️ `{symbol}` добавлена в бан за убытки.")
+                return
 
-        data = message.get("data", {})
-        bids = {float(p): float(s) for p, s in data.get("b", [])}
-        asks = {float(p): float(s) for p, s in data.get("a", [])}
+            data = message.get("data", {})
+            bids = {float(p): float(s) for p, s in data.get("b", [])}
+            asks = {float(p): float(s) for p, s in data.get("a", [])}
 
-        if not bids or not asks:
-            return
+            if not bids or not asks:
+                return
 
-        best_bid = max(bids.keys())
-        best_ask = min(asks.keys())
+            best_bid = max(bids.keys())
+            best_ask = min(asks.keys())
 
-        if self.in_position:
-            if self.active_symbol == symbol:
-                current_wall_map = bids if self.position_side == "Buy" else asks
-                current_wall_size = current_wall_map.get(self.wall_price, 0.0)
+            if self.in_position:
+                if self.active_symbol == symbol:
+                    current_wall_map = bids if self.position_side == "Buy" else asks
+                    current_wall_size = current_wall_map.get(self.wall_price, 0.0)
 
-                eaten_pct = ((self.initial_wall_size - current_wall_size) / self.initial_wall_size) * 100
-                current_price = best_bid if self.position_side == "Sell" else best_ask
-                elapsed_time = now - self.entry_time
+                    eaten_pct = ((self.initial_wall_size - current_wall_size) / self.initial_wall_size) * 100
+                    current_price = best_bid if self.position_side == "Sell" else best_ask
+                    elapsed_time = now - self.entry_time
 
-                if self.position_side == "Buy":
-                    current_pnl_pct = ((current_price - self.entry_price) / self.entry_price) * 100
-                else:
-                    current_pnl_pct = ((self.entry_price - current_price) / self.entry_price) * 100
+                    if self.position_side == "Buy":
+                        current_pnl_pct = ((current_price - self.entry_price) / self.entry_price) * 100
+                    else:
+                        current_pnl_pct = ((self.entry_price - current_price) / self.entry_price) * 100
 
-                if current_pnl_pct >= BREAKEVEN_TRIGGER_PCT and not self.is_breakeven_set:
-                    self.sl_price = self.entry_price
-                    self.is_breakeven_set = True
+                    if current_pnl_pct >= BREAKEVEN_TRIGGER_PCT and not self.is_breakeven_set:
+                        self.sl_price = self.entry_price
+                        self.is_breakeven_set = True
 
-                if now - self.last_tg_update_time >= TG_UPDATE_INTERVAL_SEC and self.active_tg_msg_id:
-                    updated_text = self._generate_open_card_text(elapsed_time)
-                    update_tg_message_async(self.active_tg_msg_id, updated_text, self.get_main_menu_keyboard())
-                    self.last_tg_update_time = now
+                    if now - self.last_tg_update_time >= TG_UPDATE_INTERVAL_SEC and self.active_tg_msg_id:
+                        updated_text = self._generate_open_card_text(elapsed_time)
+                        update_tg_message_async(self.active_tg_msg_id, updated_text, self.get_main_menu_keyboard())
+                        self.last_tg_update_time = now
 
-                if elapsed_time >= POSITION_TIMEOUT_SEC:
-                    if current_pnl_pct >= 0.15:
-                        self.close_real_position("Быстрый сброс в профит (45 сек)", current_price)
-                        return
-                    elif elapsed_time >= 70:
-                        self.close_real_position("Тайм-аут без движения (70 сек)", current_price)
-                        return
+                    if elapsed_time >= POSITION_TIMEOUT_SEC:
+                        if current_pnl_pct >= 0.15:
+                            self.close_real_position("Быстрый сброс в профит (45 сек)", current_price)
+                            return
+                        elif elapsed_time >= 70:
+                            self.close_real_position("Тайм-аут без движения (70 сек)", current_price)
+                            return
 
-                if self.position_side == "Buy":
-                    if current_price >= self.tp_price:
-                        self.close_real_position(f"Take-Profit (+{TAKE_PROFIT_PCT}%)", current_price)
-                        return
-                    elif current_price <= self.sl_price:
-                        self.close_real_position(f"Stop-Loss / BU ({self.sl_price})", current_price)
-                        return
-                else:
-                    if current_price <= self.tp_price:
-                        self.close_real_position(f"Take-Profit (+{TAKE_PROFIT_PCT}%)", current_price)
-                        return
-                    elif current_price >= self.sl_price:
-                        self.close_real_position(f"Stop-Loss / BU ({self.sl_price})", current_price)
-                        return
+                    if self.position_side == "Buy":
+                        if current_price >= self.tp_price:
+                            self.close_real_position(f"Take-Profit (+{TAKE_PROFIT_PCT}%)", current_price)
+                            return
+                        elif current_price <= self.sl_price:
+                            self.close_real_position(f"Stop-Loss / BU ({self.sl_price})", current_price)
+                            return
+                    else:
+                        if current_price <= self.tp_price:
+                            self.close_real_position(f"Take-Profit (+{TAKE_PROFIT_PCT}%)", current_price)
+                            return
+                        elif current_price >= self.sl_price:
+                            self.close_real_position(f"Stop-Loss / BU ({self.sl_price})", current_price)
+                            return
 
-                if eaten_pct >= EAT_THRESHOLD_PCT:
-                    if current_pnl_pct < 0.15:
-                        reason = f"Стенку разъели на {eaten_pct:.1f}%"
-                        self.close_real_position(reason, current_price)
-            return
+                    if eaten_pct >= EAT_THRESHOLD_PCT:
+                        if current_pnl_pct < 0.15:
+                            reason = f"Стенку разъели на {eaten_pct:.1f}%"
+                            self.close_real_position(reason, current_price)
+                return
 
-        wall_threshold_usd = self.targets[symbol]
-        spread_pct = ((best_ask - best_bid) / best_bid) * 100
-        if spread_pct > MAX_SPREAD_PCT: return
+            wall_threshold_usd = self.targets[symbol]
+            spread_pct = ((best_ask - best_bid) / best_bid) * 100
+            if spread_pct > MAX_SPREAD_PCT: return
 
-        max_bid = max([p * s for p, s in bids.items()], default=0)
-        max_ask = max([p * s for p, s in asks.items()], default=0)
-        current_max = max(max_bid, max_ask)
+            max_bid = max([p * s for p, s in bids.items()], default=0)
+            max_ask = max([p * s for p, s in asks.items()], default=0)
+            current_max = max(max_bid, max_ask)
 
-        if now - self.last_log_time > LOG_INTERVAL_SEC:
-            status_str = "ПАУЗА" if self.manual_paused else (f"В ПОЗИЦИИ [{self.active_symbol}]" if self.in_position else f"ПОИСК СТЕНОК (Депо: ${self.current_balance:.2f})")
-            print(f"📡 [PULSE] Сканирование {symbol}... - Стенка: ${current_max:,.0f} - {status_str}")
-            self.last_log_time = now
+            if now - self.last_log_time > LOG_INTERVAL_SEC:
+                status_str = "ПАУЗА" if self.manual_paused else (f"В ПОЗИЦИИ [{self.active_symbol}]" if self.in_position else f"ПОИСК СТЕНОК (Депо: ${self.current_balance:.2f})")
+                print(f"📡 [PULSE] Сканирование {symbol}... - Стенка: ${current_max:,.0f} - {status_str}")
+                self.last_log_time = now
 
-        if now - self.last_close_time < COOLDOWN_SEC: return
+            if now - self.last_close_time < COOLDOWN_SEC: return
 
-        recent_trades = self.get_recent_trade_count(symbol)
-        vwap_15m = self.calculate_vwap_15m(symbol)
+            recent_trades = self.get_recent_trade_count(symbol)
+            vwap_15m = self.calculate_vwap_15m(symbol)
 
-        for price, size in bids.items():
-            wall_usd = price * size
-            if wall_usd >= wall_threshold_usd:
-                dist_pct = ((best_bid - price) / best_bid) * 100
-                if dist_pct <= PROXIMITY_PCT:
-                    if recent_trades < MIN_TRADES_PER_MIN or (vwap_15m and best_bid < vwap_15m) or not self.check_tape_aggressors_usd(symbol, "Buy", wall_usd):
-                        continue
-                    key = (symbol, "Buy", price)
-                    if key not in self.wall_tracker: self.wall_tracker[key] = now
-                    elif now - self.wall_tracker[key] >= MIN_WALL_LIFETIME_SEC:
-                        self.open_real_position(symbol, "Buy", price, size)
-                        self.wall_tracker.clear()
-                        return
+            for price, size in bids.items():
+                wall_usd = price * size
+                if wall_usd >= wall_threshold_usd:
+                    dist_pct = ((best_bid - price) / best_bid) * 100
+                    if dist_pct <= PROXIMITY_PCT:
+                        if recent_trades < MIN_TRADES_PER_MIN or (vwap_15m and best_bid < vwap_15m) or not self.check_tape_aggressors_usd(symbol, "Buy", wall_usd):
+                            continue
+                        key = (symbol, "Buy", price)
+                        if key not in self.wall_tracker: self.wall_tracker[key] = now
+                        elif now - self.wall_tracker[key] >= MIN_WALL_LIFETIME_SEC:
+                            self.open_real_position(symbol, "Buy", price, size)
+                            self.wall_tracker.clear()
+                            return
 
-        for price, size in asks.items():
-            wall_usd = price * size
-            if wall_usd >= wall_threshold_usd:
-                dist_pct = ((price - best_ask) / best_ask) * 100
-                if dist_pct <= PROXIMITY_PCT:
-                    if recent_trades < MIN_TRADES_PER_MIN or (vwap_15m and best_ask > vwap_15m) or not self.check_tape_aggressors_usd(symbol, "Sell", wall_usd):
-                        continue
-                    key = (symbol, "Sell", price)
-                    if key not in self.wall_tracker: self.wall_tracker[key] = now
-                    elif now - self.wall_tracker[key] >= MIN_WALL_LIFETIME_SEC:
-                        self.open_real_position(symbol, "Sell", price, size)
-                        self.wall_tracker.clear()
-                        return
-
+            for price, size in asks.items():
+                wall_usd = price * size
+                if wall_usd >= wall_threshold_usd:
+                    dist_pct = ((price - best_ask) / best_ask) * 100
+                    if dist_pct <= PROXIMITY_PCT:
+                        if recent_trades < MIN_TRADES_PER_MIN or (vwap_15m and best_ask > vwap_15m) or not self.check_tape_aggressors_usd(symbol, "Sell", wall_usd):
+                            continue
+                        key = (symbol, "Sell", price)
+                        if key not in self.wall_tracker: self.wall_tracker[key] = now
+                        elif now - self.wall_tracker[key] >= MIN_WALL_LIFETIME_SEC:
+                            self.open_real_position(symbol, "Sell", price, size)
+                            self.wall_tracker.clear()
+                            return
+                            
+        except Exception as e:
+            print(f"❌ [ORDERBOOK ERROR] Ошибка в потоке стакана для {message.get('topic')}: {e}")
     def set_active_msg_id(self, msg_id):
         self.active_tg_msg_id = msg_id
 
