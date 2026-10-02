@@ -2,27 +2,27 @@ import os
 import time
 import json
 import math
+import signal
+import sys
+import atexit
 import threading
 import requests
 import psycopg2
 from datetime import datetime
 from collections import defaultdict, deque
-from pybit.unified_trading import WebSocket, HTTP
-from fastapi import FastAPI
-import uvicorn
+from pybit.unified_trading import WebSocket
 
 # ==================== НАСТРОЙКИ ТЕЛЕГРАМ ====================
 TELEGRAM_BOT_TOKEN = "8828927799:AAGQf8_YwE5rkdLzrPGNnZ2d5zsp4Lrx_qg"
 TELEGRAM_CHAT_ID = "1190982420"
 
-# ==================== НАСТРОЙКИ BYBIT & БАЗЫ ДАННЫХ ====================
-DATABASE_URL = os.getenv("DATABASE_URL")
-BYBIT_API_KEY = os.getenv("BYBIT_API_KEY", "")
-BYBIT_API_SECRET = os.getenv("BYBIT_API_SECRET", "")
+# ==================== НАСТРОЙКИ БАЗЫ ДАННЫХ ====================
+# Вставьте External Database URL из aura-db (или оставьте os.getenv)
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user:password@hostname.render.com/dbname")
 
 # ==================== НАСТРОЙКИ СТРАТЕГИИ ====================
 CATEGORY = "linear"            # Фьючерсы USDT (Mainnet)
-DEFAULT_TOP_COINS_LIMIT = 30   # TOP-40 активных альтов
+DEFAULT_TOP_COINS_LIMIT = 25   # TOP-25 активных альтов
 DEFAULT_INITIAL_BALANCE = 20.0 # Базовый депозит
 DEFAULT_LEVERAGE = 5           # Кредитное плечо (5x)
 MAX_DRAWDOWN_PCT = 10.0        # Остановка при потере -10%
@@ -30,7 +30,7 @@ MAX_DRAWDOWN_PCT = 10.0        # Остановка при потере -10%
 SLIPPAGE_PCT = 0.02            # Учет проскальзывания 0.02%
 MAX_CONSECUTIVE_LOSSES = 5     # Жесткий авто-бан после 5 убытков подряд
 
-# --- УМНЫЕ ФИЛЬТРЫ ЗА X МИНУТ ---
+# --- УМНЫЕ ФИЛЬТРЫ ZA X МИНУТ ---
 PERFORMANCE_WINDOW_SEC = 1800  # Окно анализа монеты (30 минут)
 MAX_LOSSES_IN_WINDOW = 3       # Макс. убытков за 30 минут -> Временный бан
 MAX_WINDOW_PNL_LOSS = -0.30    # Макс. суммарный пролив монеты за 30 мин (-0.30%)
@@ -57,8 +57,6 @@ MAX_SPREAD_PCT = 0.06          # Спред (<= 0.06%)
 MIN_TRADES_PER_MIN = 10        # Минимум 10 сделок в минуту
 
 REST_5_PCT_SEC = 900           # Слив 5% -> отдых 15 минут
-REST_10_PCT_SEC = 3600         # Слив 10% -> отдых 1 час
-
 LOG_INTERVAL_SEC = 15           
 TG_UPDATE_INTERVAL_SEC = 3.5   
 
@@ -155,22 +153,14 @@ def write_file_log(line_text):
             f.write(formatted_line)
             f.flush()
             os.fsync(f.fileno())
-    except Exception as e:
+    except Exception:
         pass
 
-class LeverageRealBot:
+class LeveragePaperBot:
     def __init__(self):
-        print("⚡ Инициализация РЕАЛЬНОГО БОТА (API BYBIT) с защитой 24/7...")
+        print("⚡ Инициализация ТЕСТОВОГО СИМУЛЯТОРА (Paper Trading)...")
         
         self.lock = threading.Lock()
-        
-        # HTTP Клиент Bybit для боевой торговли
-        self.http_client = HTTP(
-            testnet=False,
-            api_key=BYBIT_API_KEY,
-            api_secret=BYBIT_API_SECRET,
-        )
-        self.symbol_rules = {}
         
         self.in_position = False
         self.active_symbol = None
@@ -191,14 +181,11 @@ class LeverageRealBot:
         
         self._init_db()
         self._load_state()
-        self._fetch_instrument_rules()
 
         self.ws_client = None
         self.targets = self._get_top_mainnet_symbols()
         self.trade_history = defaultdict(deque)
 
-        self.max_allowed_loss = self.session_start_balance * (MAX_DRAWDOWN_PCT / 100)
-        
         self.entry_price = 0.0
         self.wall_price = 0.0
         self.initial_wall_size = 0.0
@@ -218,38 +205,8 @@ class LeverageRealBot:
         self.pause_until = 0
         self.triggered_5_pct_pause = False
 
-    def _fetch_instrument_rules(self):
-        """Загружает правила шага цены и лота для всех монет"""
-        try:
-            res = self.http_client.get_instruments_info(category=CATEGORY)
-            if res.get("retCode") == 0:
-                for item in res["result"]["list"]:
-                    self.symbol_rules[item["symbol"]] = {
-                        "qtyStep": float(item["lotSizeFilter"]["qtyStep"]),
-                        "tickSize": float(item["priceFilter"]["tickSize"])
-                    }
-            print(f"📦 [BYBIT] Загружены торговые правила для {len(self.symbol_rules)} пар.")
-        except Exception as e:
-            print(f"❌ [BYBIT ERROR] Ошибка загрузки спецификаций тикеров: {e}")
-
-    def _normalize_qty(self, symbol, raw_qty):
-        """Округляет объем сделки согласно требованиям Bybit (qtyStep)"""
-        step = self.symbol_rules.get(symbol, {}).get("qtyStep", 0.001)
-        precision = 0
-        if step < 1:
-            step_str = str(step)
-            if 'e' in step_str.lower():
-                precision = int(step_str.lower().split('e-')[1])
-            else:
-                precision = len(step_str.split('.')[1])
-        
-        normalized = math.floor(raw_qty / step) * step
-        if precision > 0:
-            return f"{normalized:.{precision}f}"
-        return str(int(normalized))
-
     def _get_db_connection(self):
-        if not DATABASE_URL:
+        if not DATABASE_URL or "postgresql://" not in DATABASE_URL:
             return None
         return psycopg2.connect(DATABASE_URL)
 
@@ -257,7 +214,7 @@ class LeverageRealBot:
         try:
             conn = self._get_db_connection()
             if not conn:
-                print("⚠️ DATABASE_URL не найден, бот работает во временной памяти.")
+                print("⚠️ Подключение к PostgreSQL не настроено. Работаем с памятью.")
                 return
             cur = conn.cursor()
             cur.execute("""
@@ -269,9 +226,9 @@ class LeverageRealBot:
             conn.commit()
             cur.close()
             conn.close()
-            print("🗄 [POSTGRES] Таблица 'bot_state' успешно проверена/создана в aura-db!")
+            print("🗄 [POSTGRES] Подключение к aura-db успешно!")
         except Exception as e:
-            print(f"❌ [POSTGRES ERROR] Ошибка инициализации таблицы БД: {e}")
+            print(f"❌ [POSTGRES ERROR] {e}")
 
     def _save_state(self):
         data = {
@@ -285,8 +242,7 @@ class LeverageRealBot:
         }
         try:
             conn = self._get_db_connection()
-            if not conn:
-                return
+            if not conn: return
             cur = conn.cursor()
             cur.execute("""
                 INSERT INTO bot_state (id, data) 
@@ -298,13 +254,12 @@ class LeverageRealBot:
             cur.close()
             conn.close()
         except Exception as e:
-            print(f"❌ [POSTGRES ERROR] Ошибка сохранения состояния: {e}")
+            print(f"❌ [POSTGRES ERROR] Сохранение не удалось: {e}")
 
     def _load_state(self):
         try:
             conn = self._get_db_connection()
-            if not conn:
-                return
+            if not conn: return
             cur = conn.cursor()
             cur.execute("SELECT data FROM bot_state WHERE id = 1;")
             row = cur.fetchone()
@@ -320,11 +275,17 @@ class LeverageRealBot:
                 self.leverage = data.get("leverage", DEFAULT_LEVERAGE)
                 self.top_coins_limit = data.get("top_coins_limit", DEFAULT_TOP_COINS_LIMIT)
                 self.user_blacklist = set(data.get("user_blacklist", []))
-                print(f"📦 [POSTGRES] Баланс БД: ${self.current_balance:.2f} | Плечо: {self.leverage}x | В ЧС: {len(self.user_blacklist)} монет")
+                print(f"📦 [POSTGRES] Загружен баланс aura-db: ${self.current_balance:.2f} | Плечо: {self.leverage}x")
             else:
                 self._save_state()
         except Exception as e:
-            print(f"⚠️ [POSTGRES ERROR] Ошибка чтения из aura-db: {e}")
+            print(f"⚠️ [POSTGRES ERROR] {e}")
+
+    def emergency_close_all_positions(self):
+        """Аварийное закрытие при остановке программы"""
+        if self.in_position and self.active_symbol:
+            print(f"\n🚨 [EMERGENCY] Зафиксировано закрытие консоли! Закрываем тестовую позицию {self.active_symbol}...")
+            self.close_paper_position("Экстренное завершение терминала", self.entry_price)
 
     def _get_top_mainnet_symbols(self):
         url = "https://api.bybit.com/v5/market/tickers?category=linear"
@@ -345,7 +306,6 @@ class LeverageRealBot:
 
                 for t in usdt_tickers:
                     symbol = t["symbol"]
-                    
                     if self.in_position and self.active_symbol == symbol:
                         turnover = float(t.get("turnover24h", 0))
                         wall_threshold = 250_000 if symbol == "SOLUSDT" else max(100_000, round(turnover * 0.0008, -3))
@@ -363,13 +323,13 @@ class LeverageRealBot:
                         break
 
                 return targets
-            except Exception as e:
+            except Exception:
                 time.sleep(2)
         return {"SOLUSDT": 250000, "XRPUSDT": 100000}
 
     def hard_reconnect_websocket(self):
         with self.lock:
-            print("\n🔄 [HARD RECONNECT] Плавное пересоздание WebSocket сокетов Bybit...")
+            print("\n🔄 [HARD RECONNECT] Подключение к WebSocket Bybit...")
             try:
                 if self.ws_client:
                     self.ws_client._exit()
@@ -380,31 +340,22 @@ class LeverageRealBot:
             self.targets = self._get_top_mainnet_symbols()
             self.wall_tracker.clear()
             
-            # Включаем ping_interval и ping_timeout для стабильности сокета
-            new_ws = WebSocket(
-                testnet=False, 
-                channel_type=CATEGORY, 
-                ping_interval=20, 
-                ping_timeout=10
-            )
+            new_ws = WebSocket(testnet=False, channel_type=CATEGORY, ping_interval=20, ping_timeout=10)
             self.ws_client = new_ws
 
             count = 0
             for symbol in list(self.targets.keys()):
                 try:
-                    # Важно: Для Bybit V5 возвращаем валидный depth=50
                     new_ws.orderbook_stream(depth=50, symbol=symbol, callback=self.on_orderbook_update)
                     new_ws.trade_stream(symbol=symbol, callback=self.on_public_trade_update)
-                    
                     count += 1
-                    # Задержка 0.25 сек каждые 2 монеты, чтобы не перегрузить CPU на Render
                     if count % 2 == 0:
-                        time.sleep(0.25)
-                except Exception as e:
-                    print(f"⚠️ Ошибка подписки на {symbol}: {e}")
+                        time.sleep(0.25) # Плавная подписка для защиты процессора
+                except Exception:
+                    pass
             
             self.last_ws_data_time = time.time()
-            print(f"✅ [HARD RECONNECT] Успешно подписно {count} пар без перегрузки!\n")
+            print(f"✅ [HARD RECONNECT] Отслеживаем {count} пар без нагрузок!\n")
 
     def on_public_trade_update(self, message):
         self.last_ws_data_time = time.time()
@@ -468,27 +419,6 @@ class LeverageRealBot:
             ]
         }
 
-    def get_settings_keyboard(self):
-        return {
-            "inline_keyboard": [
-                [
-                    {"text": f"🕹️️ Плечо: {self.leverage}x", "callback_data": "set_lev_dialog"},
-                    {"text": f"💳 Депо: ${self.current_balance:.0f}", "callback_data": "set_dep_dialog"}
-                ],
-                [{"text": f"🏆 ТОП-Монет: {self.top_coins_limit}", "callback_data": "set_top_dialog"}],
-                [{"text": "◀️️ НАЗАД В МЕНЮ", "callback_data": "main_menu"}]
-            ]
-        }
-
-    def get_blacklist_keyboard(self):
-        return {
-            "inline_keyboard": [
-                [{"text": "➕ ДОБАВИТЬ В БАН", "callback_data": "add_ban_prompt"}, {"text": "➖ СНЯТЬ ИЗ БАНА", "callback_data": "remove_ban_prompt"}],
-                [{"text": "📋 ПОКАЗАТЬ БАН-ЛИСТ", "callback_data": "show_blacklist"}],
-                [{"text": "◀️️ НАЗАД В МЕНЮ", "callback_data": "main_menu"}]
-            ]
-        }
-
     def _generate_open_card_text(self, elapsed_sec):
         position_usd = self.current_balance * self.leverage
         side_icon = "🟢 LONG" if self.position_side == "Buy" else "🔴 SHORT"
@@ -496,7 +426,7 @@ class LeverageRealBot:
         be_status = " 🛡️ *(SL в Безубытке)*" if self.is_breakeven_set else ""
 
         return (
-            f"🎯 *ВХОД В СДЕЛКУ* (Боевой) — `{self.active_symbol}`\n"
+            f"🎯 *ВХОД В СДЕЛКУ* (Тестовый) — `{self.active_symbol}`\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
             f"📌 Направление: `{side_icon}` ({self.leverage}x)\n"
             f"💵 Вход по цене: `{self.entry_price}` USDT\n"
@@ -524,14 +454,7 @@ class LeverageRealBot:
             self.user_blacklist.add(symbol)
             self._save_state()
             self.targets = self._get_top_mainnet_symbols()
-            
-            ban_text = (
-                f"🛡️ *УПРЕЖДАЮЩИЙ АВТО-БАН* — `{symbol}`\n"
-                f"━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"⚠️ Монета за 30 мин принесла `{losses_cnt}` убытка (PnL: `{sum_pnl:+.2f}%`)\n"
-                f"🚫 Монета забанена. Список отслеживаемых пар обновлён!"
-            )
-            send_tg_message_async(ban_text, reply_markup=self.get_blacklist_keyboard())
+            send_tg_message_async(f"🛡️ `{symbol}` временно забанена за серии убытков!")
             return
 
         data = message.get("data", {})
@@ -569,52 +492,47 @@ class LeverageRealBot:
 
                 if elapsed_time >= POSITION_TIMEOUT_SEC:
                     if current_pnl_pct >= 0.15:
-                        self.close_real_position("Быстрый сброс в профит (45 сек)", current_price)
+                        self.close_paper_position("Быстрый сброс в профит (45 сек)", current_price)
                         return
                     elif elapsed_time >= 70:
-                        self.close_real_position("Тайм-аут без движения (70 сек)", current_price)
+                        self.close_paper_position("Тайм-аут без движения (70 сек)", current_price)
                         return
 
                 if self.position_side == "Buy":
                     if current_price >= self.tp_price:
-                        self.close_real_position(f"Take-Profit (+{TAKE_PROFIT_PCT}%)", current_price)
+                        self.close_paper_position(f"Take-Profit (+{TAKE_PROFIT_PCT}%)", current_price)
                         return
                     elif current_price <= self.sl_price:
-                        self.close_real_position(f"Stop-Loss / BU ({self.sl_price})", current_price)
+                        self.close_paper_position(f"Stop-Loss / BU ({self.sl_price})", current_price)
                         return
                 else:
                     if current_price <= self.tp_price:
-                        self.close_real_position(f"Take-Profit (+{TAKE_PROFIT_PCT}%)", current_price)
+                        self.close_paper_position(f"Take-Profit (+{TAKE_PROFIT_PCT}%)", current_price)
                         return
                     elif current_price >= self.sl_price:
-                        self.close_real_position(f"Stop-Loss / BU ({self.sl_price})", current_price)
+                        self.close_paper_position(f"Stop-Loss / BU ({self.sl_price})", current_price)
                         return
 
                 if eaten_pct >= EAT_THRESHOLD_PCT:
                     if current_pnl_pct < 0.15:
                         reason = f"Стенку разъели на {eaten_pct:.1f}%"
-                        self.close_real_position(reason, current_price)
+                        self.close_paper_position(reason, current_price)
             return
 
         wall_threshold_usd = self.targets[symbol]
         spread_pct = ((best_ask - best_bid) / best_bid) * 100
-        if spread_pct > MAX_SPREAD_PCT:
-            return
+        if spread_pct > MAX_SPREAD_PCT: return
 
         max_bid = max([p * s for p, s in bids.items()], default=0)
         max_ask = max([p * s for p, s in asks.items()], default=0)
         current_max = max(max_bid, max_ask)
-        
-        if current_max > self.max_seen_wall["usd"] or self.max_seen_wall["symbol"] in self.user_blacklist:
-            self.max_seen_wall = {"symbol": symbol, "usd": current_max}
 
         if now - self.last_log_time > LOG_INTERVAL_SEC:
             status_str = "ПАУЗА" if self.manual_paused else (f"В ПОЗИЦИИ [{self.active_symbol}]" if self.in_position else f"ПОИСК СТЕНОК (Депо: ${self.current_balance:.2f})")
             print(f"📡 [PULSE] Сканирование {symbol}... - Стенка: ${current_max:,.0f} - {status_str}")
             self.last_log_time = now
 
-        if now - self.last_close_time < COOLDOWN_SEC:
-            return
+        if now - self.last_close_time < COOLDOWN_SEC: return
 
         recent_trades = self.get_recent_trade_count(symbol)
         vwap_15m = self.calculate_vwap_15m(symbol)
@@ -627,10 +545,9 @@ class LeverageRealBot:
                     if recent_trades < MIN_TRADES_PER_MIN or (vwap_15m and best_bid < vwap_15m) or not self.check_tape_aggressors_usd(symbol, "Buy", wall_usd):
                         continue
                     key = (symbol, "Buy", price)
-                    if key not in self.wall_tracker:
-                        self.wall_tracker[key] = now
+                    if key not in self.wall_tracker: self.wall_tracker[key] = now
                     elif now - self.wall_tracker[key] >= MIN_WALL_LIFETIME_SEC:
-                        self.open_real_position(symbol, "Buy", price, size)
+                        self.open_paper_position(symbol, "Buy", price, size)
                         self.wall_tracker.clear()
                         return
 
@@ -642,160 +559,83 @@ class LeverageRealBot:
                     if recent_trades < MIN_TRADES_PER_MIN or (vwap_15m and best_ask > vwap_15m) or not self.check_tape_aggressors_usd(symbol, "Sell", wall_usd):
                         continue
                     key = (symbol, "Sell", price)
-                    if key not in self.wall_tracker:
-                        self.wall_tracker[key] = now
+                    if key not in self.wall_tracker: self.wall_tracker[key] = now
                     elif now - self.wall_tracker[key] >= MIN_WALL_LIFETIME_SEC:
-                        self.open_real_position(symbol, "Sell", price, size)
+                        self.open_paper_position(symbol, "Sell", price, size)
                         self.wall_tracker.clear()
                         return
 
     def set_active_msg_id(self, msg_id):
         self.active_tg_msg_id = msg_id
 
-    def open_real_position(self, symbol, side, price, wall_size):
+    def open_paper_position(self, symbol, side, price, wall_size):
+        self.in_position = True
+        self.active_symbol = symbol
+        self.position_side = side
+        
+        slippage_mult = (1 + SLIPPAGE_PCT / 100) if side == "Buy" else (1 - SLIPPAGE_PCT / 100)
+        self.entry_price = round(price * slippage_mult, 4)
+        
+        self.wall_price = price
+        self.initial_wall_size = wall_size
+        self.entry_time = time.time()
+        self.last_tg_update_time = self.entry_time
+        self.is_breakeven_set = False
+
+        self.tp_price = round(self.entry_price * (1 + TAKE_PROFIT_PCT / 100 if side == "Buy" else 1 - TAKE_PROFIT_PCT / 100), 4)
+        self.sl_price = round(self.entry_price * (1 - STOP_LOSS_PCT / 100 if side == "Buy" else 1 + STOP_LOSS_PCT / 100), 4)
+
+        msg_text = self._generate_open_card_text(0)
+        print(f"\n⚡ [PAPER LOG] {side} {symbol} по {self.entry_price}! Стенка: ${price * wall_size:,.0f}")
+        send_tg_message_async(msg_text, reply_markup=self.get_main_menu_keyboard(), callback=self.set_active_msg_id)
+
+    def close_paper_position(self, reason, close_price):
         with self.lock:
-            if self.in_position or not BYBIT_API_KEY:
-                return
-            self.in_position = True
+            if not self.in_position: return
 
-        try:
-            # 1. Устанавливаем плечо на бирже
-            try:
-                self.http_client.set_leverage(category=CATEGORY, symbol=symbol, buyLeverage=str(self.leverage), sellLeverage=str(self.leverage))
-            except Exception:
-                pass 
+            now = time.time()
+            slippage_mult = (1 - SLIPPAGE_PCT / 100) if self.position_side == "Buy" else (1 + SLIPPAGE_PCT / 100)
+            actual_close_price = round(close_price * slippage_mult, 4)
 
-            # 2. Считаем QTY
-            pos_usd = self.current_balance * self.leverage
-            raw_qty = pos_usd / price
-            qty_str = self._normalize_qty(symbol, raw_qty)
+            gross_pnl_pct = ((actual_close_price - self.entry_price) / self.entry_price * 100) if self.position_side == "Buy" else ((self.entry_price - actual_close_price) / self.entry_price * 100)
+            net_pnl_pct = gross_pnl_pct - TAKER_FEE_PCT
+            net_usd_pnl = (net_pnl_pct / 100) * (self.current_balance * self.leverage)
 
-            # 3. Маркет-Ордер
-            order = self.http_client.place_order(
-                category=CATEGORY,
-                symbol=symbol,
-                side=side,
-                orderType="Market",
-                qty=qty_str,
-                timeInForce="GTC"
-            )
+            self.current_balance += net_usd_pnl
+            closed_symbol = self.active_symbol
+            self.coin_trade_history[closed_symbol].append((now, net_pnl_pct))
 
-            if order.get("retCode") == 0:
-                self.active_symbol = symbol
-                self.position_side = side
-                self.wall_price = price
-                self.initial_wall_size = wall_size
-                self.entry_time = time.time()
-                self.last_tg_update_time = self.entry_time
-                self.is_breakeven_set = False
-
-                # Пытаемся получить точную цену входа, если нет - берем текущую price
-                self.entry_price = price
-                try:
-                    pos_info = self.http_client.get_positions(category=CATEGORY, symbol=symbol)
-                    for p in pos_info.get("result", {}).get("list", []):
-                        if float(p.get("size", 0)) > 0:
-                            self.entry_price = float(p.get("avgPrice", price))
-                            break
-                except Exception:
-                    pass
-
-                self.tp_price = round(self.entry_price * (1 + TAKE_PROFIT_PCT / 100 if side == "Buy" else 1 - TAKE_PROFIT_PCT / 100), 4)
-                self.sl_price = round(self.entry_price * (1 - STOP_LOSS_PCT / 100 if side == "Buy" else 1 + STOP_LOSS_PCT / 100), 4)
-
-                msg_text = self._generate_open_card_text(0)
-                send_tg_message_async(msg_text, reply_markup=self.get_main_menu_keyboard(), callback=self.set_active_msg_id)
+            if net_pnl_pct > 0:
+                self.wins_count += 1
+                status_icon = "🟢 ПРОФИТ"
             else:
-                print(f"❌ Ошибка Bybit API: {order.get('retMsg')}")
-                self.in_position = False
+                self.losses_count += 1
+                status_icon = "🔴 УБЫТОК"
 
-        except Exception as e:
-            print(f"❌ Исключение при открытии позиции: {e}")
+            total_trades = self.wins_count + self.losses_count
+            winrate = (self.wins_count / total_trades * 100) if total_trades > 0 else 0.0
+
+            self._save_state()
+
+            msg = (
+                f"⚠️ *ЗАКРЫТИЕ СДЕЛКИ* (Тест) — `{closed_symbol}`\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"📌 Позиция: `{'🟢 LONG' if self.position_side == 'Buy' else '🔴 SHORT'}`\n"
+                f"💡 Причина: `{reason}`\n"
+                f"📊 Результат: *{status_icon}* (`{net_pnl_pct:+.2f}%` / `${net_usd_pnl:+.2f}`)\n\n"
+                f"📈 *СТАТИСТИКА*\n"
+                f"⚔️ Сделки: 🟢 `{self.wins_count}` | 🛑 `{self.losses_count}` (`{winrate:.1f}%`)\n"
+                f"💳 Баланс: `${self.current_balance:.2f}`\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━"
+            )
+            print(f"✅ [PAPER LOG] {closed_symbol} закрыт ({reason}). Баланс: ${self.current_balance:.2f}")
+            send_tg_message_async(msg)
+
             self.in_position = False
-
-    def close_real_position(self, reason, close_price):
-        with self.lock:
-            if not self.in_position:
-                return
-
-            try:
-                close_side = "Sell" if self.position_side == "Buy" else "Buy"
-                
-                # Ищем точный размер позиции на бирже
-                qty = "0"
-                pos_info = self.http_client.get_positions(category=CATEGORY, symbol=self.active_symbol)
-                for p in pos_info.get("result", {}).get("list", []):
-                    if float(p.get("size", 0)) > 0:
-                        qty = p.get("size")
-                        break
-
-                # Закрываем ордером ReduceOnly
-                if float(qty) > 0:
-                    self.http_client.place_order(
-                        category=CATEGORY,
-                        symbol=self.active_symbol,
-                        side=close_side,
-                        orderType="Market",
-                        qty=qty,
-                        reduceOnly=True,
-                        timeInForce="GTC"
-                    )
-
-                # Математика PnL для Telegram (Остается локальной для скорости отображения)
-                now = time.time()
-                slippage_mult = (1 - SLIPPAGE_PCT / 100) if self.position_side == "Buy" else (1 + SLIPPAGE_PCT / 100)
-                actual_close_price = round(close_price * slippage_mult, 4)
-
-                gross_pnl_pct = ((actual_close_price - self.entry_price) / self.entry_price * 100) if self.position_side == "Buy" else ((self.entry_price - actual_close_price) / self.entry_price * 100)
-                net_pnl_pct = gross_pnl_pct - TAKER_FEE_PCT
-                net_usd_pnl = (net_pnl_pct / 100) * (self.current_balance * self.leverage)
-
-                self.current_balance += net_usd_pnl
-                closed_symbol = self.active_symbol
-                self.coin_trade_history[closed_symbol].append((now, net_pnl_pct))
-
-                if net_pnl_pct > 0:
-                    self.wins_count += 1
-                    status_icon = "🟢 ПРОФИТ"
-                    self.consecutive_losses[closed_symbol] = 0
-                else:
-                    self.losses_count += 1
-                    status_icon = "🔴 УБЫТОК"
-                    self.consecutive_losses[closed_symbol] += 1
-
-                total_trades = self.wins_count + self.losses_count
-                winrate = (self.wins_count / total_trades) * 100 if total_trades > 0 else 0.0
-                session_pnl_usd = self.current_balance - self.session_start_balance
-                session_pnl_pct = (session_pnl_usd / self.session_start_balance) * 100
-
-                self._save_state()
-
-                msg = (
-                    f"⚠️ *ЗАКРЫТИЕ СДЕЛКИ* (Боевой) — `{closed_symbol}`\n"
-                    f"━━━━━━━━━━━━━━━━━━━━━━\n"
-                    f"📌 Позиция: `{'🟢 LONG' if self.position_side == 'Buy' else '🔴 SHORT'}`\n"
-                    f"💡 Причина: `{reason}`\n"
-                    f"📊 Результат: *{status_icon}* (`{net_pnl_pct:+.2f}%` / `${net_usd_pnl:+.2f}`)\n\n"
-                    f"📈 *СТАТИСТИКА СЕССИИ*\n"
-                    f"⚔️ Сделки: 🟢 `{self.wins_count}`  |  🛑 `{self.losses_count}`\n"
-                    f"💳 Баланс: `${self.current_balance:.2f}`\n"
-                    f"━━━━━━━━━━━━━━━━━━━━━━"
-                )
-                send_tg_message_async(msg)
-
-                if self.consecutive_losses[closed_symbol] >= MAX_CONSECUTIVE_LOSSES:
-                    self.user_blacklist.add(closed_symbol)
-                    self._save_state()
-                    send_tg_message_async(f"⛔ `{closed_symbol}` автоматически добавлена в ЧС (лимит убытков).", reply_markup=self.get_blacklist_keyboard())
-
-            except Exception as e:
-                print(f"❌ Ошибка при реальном закрытии позиции: {e}")
-            finally:
-                self.in_position = False
-                self.active_symbol = None
-                self.position_side = None
-                self.active_tg_msg_id = None
-                self.last_close_time = time.time()
+            self.active_symbol = None
+            self.position_side = None
+            self.active_tg_msg_id = None
+            self.last_close_time = now
 
 # ==================== СЕРВЕР ОБРАБОТКИ КОМАНД ====================
 global_bot_instance = None
@@ -806,8 +646,7 @@ def process_telegram_updates():
         res = requests.get(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates?offset=-1", timeout=5).json()
         if res.get("ok") and res.get("result"):
             offset = res["result"][-1]["update_id"] + 1
-    except:
-        pass
+    except: pass
 
     while True:
         try:
@@ -816,7 +655,6 @@ def process_telegram_updates():
                 for update in res.get("result", []):
                     offset = update["update_id"] + 1
                     bot = global_bot_instance
-
                     if not bot: continue
 
                     if "message" in update and "text" in update["message"]:
@@ -834,30 +672,8 @@ def process_telegram_updates():
                                 send_tg_message_async("⚠️ Формат: `/setstats 254.82 857 327`")
                             continue
 
-                        if bot.awaiting_input_action == "add_ban":
-                            sym = msg_text.upper() + ("USDT" if not msg_text.upper().endswith("USDT") else "")
-                            bot.user_blacklist.add(sym)
-                            bot._save_state()
-                            bot.awaiting_input_action = None
-                            send_tg_message_async(f"⛔ `{sym}` в бане!", reply_markup=bot.get_blacklist_keyboard())
-                            continue
-
-                        elif bot.awaiting_input_action == "remove_ban":
-                            sym = msg_text.upper() + ("USDT" if not msg_text.upper().endswith("USDT") else "")
-                            bot.user_blacklist.discard(sym)
-                            bot._save_state()
-                            bot.awaiting_input_action = None
-                            send_tg_message_async(f"✅ `{sym}` удалена из бана!", reply_markup=bot.get_blacklist_keyboard())
-                            continue
-
                         if msg_text in ["/start", "/menu"]:
-                            start_msg = (
-                                "⚙️ *ПАНЕЛЬ БОЕВОГО СКАНЕРА BYBIT*\n"
-                                "━━━━━━━━━━━━━━━━━━━━━━\n"
-                                f"💳 Баланс: `${bot.current_balance:.2f}` | 🕹️ Плечо: `{bot.leverage}x`\n"
-                                f"🏆 ТОП-Монет: `{bot.top_coins_limit}` | ⛔ В бане: `{len(bot.user_blacklist)}` шт.\n"
-                                "━━━━━━━━━━━━━━━━━━━━━━"
-                            )
+                            start_msg = f"⚙️️ *ТЕСТОВЫЙ БОТ (Paper Trading)*\n💳 Баланс: `${bot.current_balance:.2f}`"
                             send_tg_message_async(start_msg, reply_markup=bot.get_main_menu_keyboard())
 
                     if "callback_query" in update:
@@ -866,38 +682,9 @@ def process_telegram_updates():
                         try: requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/answerCallbackQuery", json={"callback_query_id": cq_id}, timeout=2)
                         except: pass
 
-                        if data == "main_menu":
-                            bot.awaiting_input_action = None
-                            send_tg_message_async("⚙️ *ГЛАВНОЕ МЕНЮ*", reply_markup=bot.get_main_menu_keyboard())
-                        elif data == "menu_settings":
-                            send_tg_message_async(f"⚙️ *НАСТРОЙКИ СТРАТЕГИИ*\n💳 Депозит: `${bot.current_balance:.2f}`\n🕹 Плечо: `{bot.leverage}x`", reply_markup=bot.get_settings_keyboard())
-                        elif data == "menu_blacklist":
-                            send_tg_message_async(f"⛔ *ЧЕРНЫЙ СПИСОК* ({len(bot.user_blacklist)} монет)", reply_markup=bot.get_blacklist_keyboard())
-                        elif data == "add_ban_prompt":
-                            bot.awaiting_input_action = "add_ban"
-                            send_tg_message_async("✏️ *Напиши тикер для бана:*")
-                        elif data == "remove_ban_prompt":
-                            bot.awaiting_input_action = "remove_ban"
-                            send_tg_message_async("✏️ *Напиши тикер для разбана:*")
-                        elif data == "show_blacklist":
-                            bl = "\n".join(f"• `{s}`" for s in sorted(bot.user_blacklist)) if bot.user_blacklist else "_Пусто_"
-                            send_tg_message_async(f"📋 *БАН-ЛИСТ:*\n\n{bl}", reply_markup=bot.get_blacklist_keyboard())
-                        elif data == "set_lev_dialog":
-                            bot.leverage = 10 if bot.leverage == 5 else (20 if bot.leverage == 10 else 5)
-                            bot._save_state()
-                            send_tg_message_async(f"🕹️ Плечо `{bot.leverage}x`!", reply_markup=bot.get_settings_keyboard())
-                        elif data == "set_dep_dialog":
-                            bot.current_balance = 50.0 if bot.current_balance == 20.0 else (100.0 if bot.current_balance == 50.0 else 20.0)
-                            bot.session_start_balance = bot.current_balance
-                            bot._save_state()
-                            send_tg_message_async(f"💳 Баланс обновлён: `${bot.current_balance:.2f}`!", reply_markup=bot.get_settings_keyboard())
-                        elif data == "set_top_dialog":
-                            bot.top_coins_limit = 50 if bot.top_coins_limit == 30 else (10 if bot.top_coins_limit == 50 else 30)
-                            bot._save_state()
-                            send_tg_message_async(f"🏆 Отслеживаем TOP-`{bot.top_coins_limit}`", reply_markup=bot.get_settings_keyboard())
-                        elif data == "close_now":
+                        if data == "close_now":
                             if bot.in_position:
-                                bot.close_real_position("Ручной сброс", bot.entry_price)
+                                bot.close_paper_position("Ручной сброс", bot.entry_price)
                                 send_tg_message_async("🛑 *Позиция закрыта!*", reply_markup=bot.get_main_menu_keyboard())
                             else:
                                 send_tg_message_async("ℹ Нет активной позиции.", reply_markup=bot.get_main_menu_keyboard())
@@ -905,14 +692,7 @@ def process_telegram_updates():
                             bot.manual_paused = not bot.manual_paused
                             send_tg_message_async("⏸️ *Пауза.*" if bot.manual_paused else "▶ *В работе!*", reply_markup=bot.get_main_menu_keyboard())
                         elif data == "show_stats":
-                            wr = (bot.wins_count / (bot.wins_count + bot.losses_count) * 100) if (bot.wins_count + bot.losses_count) > 0 else 0.0
-                            send_tg_message_async(f"📊 *СТАТИСТИКА*\n💳 `${bot.current_balance:.2f}`\n🎯 Винрейт: `{wr:.1f}%`", reply_markup=bot.get_main_menu_keyboard())
-                        elif data == "skip_rest":
-                            bot.pause_until, bot.triggered_5_pct_pause = 0, False
-                            send_tg_message_async("⚡ *Пауза сброшена!*", reply_markup=bot.get_main_menu_keyboard())
-                        elif data == "reboot_bot":
-                            threading.Thread(target=bot.hard_reconnect_websocket, daemon=True).start()
-                            send_tg_message_async("🔄 *Сокеты пересозданы!*", reply_markup=bot.get_main_menu_keyboard())
+                            send_tg_message_async(f"📊 *СТАТИСТИКА*\n💳 `${bot.current_balance:.2f}`", reply_markup=bot.get_main_menu_keyboard())
             elif res.get("error_code") == 429: time.sleep(5)
         except: time.sleep(3)
         time.sleep(0.5)
@@ -926,30 +706,36 @@ def websocket_watchdog_thread(bot_instance):
                     bot_instance.hard_reconnect_websocket()
         except: time.sleep(5)
 
-# ==================== ЗАПУСК ДЛЯ ПК / RENDER ====================
-def start_bot_thread():
-    global global_bot_instance
-    bot = LeverageRealBot()
+# ==================== ОБРАБОТЧИКИ ВЫКЛЮЧЕНИЯ ====================
+def exit_handler():
+    if global_bot_instance:
+        global_bot_instance.emergency_close_all_positions()
+
+def sig_handler(sig, frame):
+    print("\n🛑 Завершение работы...")
+    if global_bot_instance:
+        global_bot_instance.emergency_close_all_positions()
+    sys.exit(0)
+
+atexit.register(exit_handler)
+signal.signal(signal.SIGINT, sig_handler)
+signal.signal(signal.SIGTERM, sig_handler)
+
+# ==================== ЗАПУСК ====================
+if __name__ == "__main__":
+    print("🚀 Запуск ТЕСТОВОГО сканера на ПК...")
+    bot = LeveragePaperBot()
     global_bot_instance = bot
 
     threading.Thread(target=process_telegram_updates, daemon=True).start()
     threading.Thread(target=websocket_watchdog_thread, args=(bot,), daemon=True).start()
 
     bot.hard_reconnect_websocket()
-    send_tg_message_async("🚀 *БОЕВОЙ сканер запущен! API Bybit и хранилище aura-db активны.*", reply_markup=bot.get_main_menu_keyboard())
+    send_tg_message_async("🚀 *Тестовый сканер запущен на ПК! Ошибок нет, симуляция активна.*", reply_markup=bot.get_main_menu_keyboard())
 
-    while True:
-        if bot.is_stopped: break
-        time.sleep(1)
-
-app = FastAPI()
-
-@app.api_route("/", methods=["GET", "HEAD"])
-def health_check(): return {"status": "ok", "bot": "working"}
-
-@app.on_event("startup")
-def startup_event():
-    threading.Thread(target=start_bot_thread, daemon=True).start()
-
-if __name__ == "__main__":
-    start_bot_thread()
+    try:
+        while True:
+            if bot.is_stopped: break
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\n🛑 Выключение...")
